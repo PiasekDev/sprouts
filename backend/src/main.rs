@@ -1,8 +1,10 @@
-use axum::{Router, routing::get};
+use axum::Router;
 use color_eyre::Result;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+
+mod api;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,7 +25,7 @@ async fn main() -> Result<()> {
 
 	sqlx::migrate!("../migrations").run(&db_pool).await?;
 
-	let app = Router::new().route("/", get(|| async { "Hello, World!" }));
+	let app = Router::new().nest("/api", api::router());
 
 	let listener = tokio::net::TcpListener::bind(&bind_address).await?;
 

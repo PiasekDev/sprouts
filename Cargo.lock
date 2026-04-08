@@ -118,6 +118,7 @@ dependencies = [
  "axum",
  "color-eyre",
  "dotenvy",
+ "serde",
  "sqlx",
  "tokio",
  "tracing",
