@@ -1,0 +1,16 @@
+services:
+  database:
+    image: postgres:18.3-trixie
+    hostname: localhost
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: sprouts
+    volumes:
+      - database-data:/var/lib/postgresql
+    restart: unless-stopped
+
+volumes:
+  database-data:
