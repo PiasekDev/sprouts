@@ -1,14 +1,24 @@
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{
+	Json,
+	body::Body,
+	extract::State,
+	http::{StatusCode, header},
+	response::Response,
+};
 use axum_extra::extract::WithRejection;
 use color_eyre::eyre::WrapErr;
 use serde::Deserialize;
 use serde_fields::SerdeField;
 use sqlx::PgPool;
 use thiserror::Error;
+use time::Duration;
+use uuid::Uuid;
 
+use super::cookie::SessionCookie;
 use crate::api::support::problem::{ProblemDetails, ProblemField, ProblemType};
 use crate::domain::password_hash::PasswordHash;
 use crate::domain::plain_password::PlainPassword;
+use crate::domain::session::{SessionToken, SessionTokenHash};
 use crate::domain::username::Username;
 use crate::{
 	AppState,
@@ -23,11 +33,26 @@ pub struct LoginRequest {
 pub async fn handler(
 	State(app_state): State<AppState>,
 	WithRejection(Json(dto), _): WithRejection<Json<LoginRequestDto>, ProblemDetails>,
-) -> Result<StatusCode, AppError> {
+) -> Result<Response, AppError> {
 	let LoginRequest { username, password } = LoginRequest::try_from(dto)?;
-	authenticate(&app_state.db_pool, &username, &password).await?;
+	let user_id = authenticate(&app_state.db_pool, &username, &password).await?;
+	let session_token = SessionToken::generate();
+	create_session(
+		&app_state.db_pool,
+		user_id,
+		&session_token.hash(),
+		app_state.config.auth_cookie.max_age,
+	)
+	.await
+	.wrap_err("failed to create session during login")?;
 
-	Ok(StatusCode::NO_CONTENT)
+	let session_cookie_header =
+		SessionCookie::new(app_state.config.auth_cookie, &session_token).into_header_value();
+	Ok(Response::builder()
+		.status(StatusCode::NO_CONTENT)
+		.header(header::SET_COOKIE, session_cookie_header)
+		.body(Body::empty())
+		.expect("login response should be a valid response"))
 }
 
 #[derive(Debug, Error)]
@@ -60,10 +85,10 @@ async fn authenticate(
 	db_pool: &PgPool,
 	username: &Username,
 	password: &PlainPassword,
-) -> Result<(), AppError> {
-	let password_hash = sqlx::query_scalar!(
+) -> Result<Uuid, AppError> {
+	let user = sqlx::query!(
 		r#"
-		SELECT password_hash
+		SELECT id, password_hash
 		FROM users
 		WHERE username = $1
 		"#,
@@ -74,7 +99,7 @@ async fn authenticate(
 	.wrap_err("failed to fetch user credentials during login")?
 	.ok_or(InvalidCredentials)?;
 
-	let password_hash = PasswordHash::new(password_hash);
+	let password_hash = PasswordHash::new(user.password_hash);
 	let is_valid = password_hash
 		.verify(password)
 		.wrap_err("failed to verify password during login")?;
@@ -82,6 +107,27 @@ async fn authenticate(
 	if !is_valid {
 		return Err(InvalidCredentials.into());
 	}
+
+	Ok(user.id)
+}
+
+async fn create_session(
+	db_pool: &PgPool,
+	user_id: Uuid,
+	session_token_hash: &SessionTokenHash,
+	max_age: Duration,
+) -> color_eyre::Result<()> {
+	sqlx::query!(
+		r#"
+		INSERT INTO sessions (user_id, token_hash, expires_at)
+		VALUES ($1, $2, NOW() + ($3 * INTERVAL '1 second'))
+		"#,
+		user_id,
+		session_token_hash.as_ref(),
+		max_age.as_seconds_f64(),
+	)
+	.execute(db_pool)
+	.await?;
 
 	Ok(())
 }
