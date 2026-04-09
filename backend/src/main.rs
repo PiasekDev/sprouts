@@ -1,10 +1,9 @@
 use axum::Router;
+use backend::api;
 use color_eyre::Result;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-
-mod api;
 
 #[tokio::main]
 async fn main() -> Result<()> {
