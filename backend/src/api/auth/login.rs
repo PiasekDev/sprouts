@@ -14,7 +14,7 @@ use thiserror::Error;
 use time::Duration;
 use uuid::Uuid;
 
-use super::cookie::SessionCookie;
+use super::session::SessionCookie;
 use crate::api::support::problem::{ProblemDetails, ProblemField, ProblemType};
 use crate::domain::password_hash::PasswordHash;
 use crate::domain::plain_password::PlainPassword;
@@ -36,18 +36,17 @@ pub async fn handler(
 ) -> Result<Response, AppError> {
 	let LoginRequest { username, password } = LoginRequest::try_from(dto)?;
 	let user_id = authenticate(&app_state.db_pool, &username, &password).await?;
-	let session_token = SessionToken::generate();
+	let session_cookie = SessionCookie::new(SessionToken::generate());
 	create_session(
 		&app_state.db_pool,
 		user_id,
-		&session_token.hash(),
+		&session_cookie.token_hash(),
 		app_state.config.auth_cookie.max_age,
 	)
 	.await
 	.wrap_err("failed to create session during login")?;
 
-	let session_cookie_header =
-		SessionCookie::new(app_state.config.auth_cookie, &session_token).into_header_value();
+	let session_cookie_header = session_cookie.into_header_value(app_state.config.auth_cookie);
 	Ok(Response::builder()
 		.status(StatusCode::NO_CONTENT)
 		.header(header::SET_COOKIE, session_cookie_header)

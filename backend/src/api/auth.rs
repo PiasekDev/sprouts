@@ -1,13 +1,18 @@
-use axum::{Router, routing::post};
+use axum::{
+	Router,
+	routing::{get, post},
+};
 
 use crate::AppState;
 
-mod cookie;
 pub mod login;
+pub mod me;
 pub mod register;
+pub mod session;
 
 pub fn router() -> Router<AppState> {
 	Router::new()
+		.route("/me", get(me::handler))
 		.route("/register", post(register::handler))
 		.route("/login", post(login::handler))
 }
