@@ -1,7 +1,6 @@
 use super::problem::{ProblemDetails, ProblemField, ProblemType};
 use axum::{
 	extract::rejection::JsonRejection,
-	http::StatusCode,
 	response::{IntoResponse, Response},
 };
 use thiserror::Error;
@@ -22,13 +21,10 @@ impl IntoResponse for AppError {
 			Self::Unexpected(error) => {
 				tracing::error!(?error, "request failed unexpectedly");
 
-				ProblemDetails::new(
-					ProblemType::InternalServerError,
-					StatusCode::INTERNAL_SERVER_ERROR,
-				)
-				.with_title("Internal server error")
-				.with_detail("The server could not complete the request.")
-				.into_response()
+				ProblemDetails::new(ProblemType::InternalServerError)
+					.with_title("Internal server error")
+					.with_detail("The server could not complete the request.")
+					.into_response()
 			}
 		}
 	}
@@ -48,7 +44,8 @@ impl From<JsonRejection> for ProblemDetails {
 			_ => "Request body could not be read",
 		};
 
-		ProblemDetails::new(ProblemType::InvalidJson, status)
+		ProblemDetails::new(ProblemType::InvalidJson)
+			.with_status(status)
 			.with_title(title)
 			.with_detail(detail)
 	}
@@ -80,10 +77,7 @@ impl From<ProblemDetails> for AppError {
 
 impl From<RequestValidationError> for ProblemDetails {
 	fn from(error: RequestValidationError) -> Self {
-		ProblemDetails::new(
-			ProblemType::ValidationError,
-			StatusCode::UNPROCESSABLE_ENTITY,
-		)
+		ProblemDetails::new(ProblemType::ValidationError)
 		.with_title("Request validation failed")
 		.with_detail("One or more fields are invalid.")
 		.with_errors(error.errors)

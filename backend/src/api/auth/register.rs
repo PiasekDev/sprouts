@@ -95,17 +95,17 @@ impl From<RegisterError> for AppError {
 impl From<RegisterError> for ProblemDetails {
 	fn from(error: RegisterError) -> Self {
 		match error {
-			RegisterError::UsernameTaken => ProblemDetails::new(
-				ProblemType::Custom("urn:sprouts:problem:username-taken"),
-				StatusCode::CONFLICT,
-			)
-			.with_title("Username is already taken")
-			.with_detail("A user with this username already exists.")
-			.with_error(ProblemField::for_field(
-				"username",
-				"already_exists",
-				"is already taken",
-			)),
+			RegisterError::UsernameTaken => {
+				ProblemDetails::new(ProblemType::Custom("username-taken"))
+					.with_status(StatusCode::CONFLICT)
+					.with_title("Username is already taken")
+					.with_detail("A user with this username already exists.")
+					.with_error(ProblemField::for_field(
+						"username",
+						"already_exists",
+						"is already taken",
+					))
+			}
 		}
 	}
 }

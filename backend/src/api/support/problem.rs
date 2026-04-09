@@ -9,10 +9,10 @@ use serde::{Serialize, Serializer};
 pub struct ProblemDetails {
 	#[serde(rename = "type")]
 	pub problem_type: ProblemType,
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub title: Option<String>,
 	#[serde(serialize_with = "serialize_status_code")]
 	pub status: StatusCode,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub title: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub detail: Option<String>,
 	#[serde(skip_serializing_if = "Vec::is_empty")]
@@ -25,6 +25,32 @@ pub enum ProblemType {
 	InvalidJson,
 	ValidationError,
 	InternalServerError,
+}
+
+const PROBLEM_URI_PREFIX: &str = "urn:sprouts:problem:";
+
+impl ProblemType {
+	pub fn uri(self) -> String {
+		format!("{PROBLEM_URI_PREFIX}{}", self.type_name())
+	}
+
+	fn type_name(self) -> &'static str {
+		match self {
+			Self::Custom(problem_type) => problem_type,
+			Self::InvalidJson => "invalid-json",
+			Self::ValidationError => "validation-error",
+			Self::InternalServerError => "internal-server-error",
+		}
+	}
+
+	fn default_status(self) -> StatusCode {
+		match self {
+			Self::Custom(_) => StatusCode::BAD_REQUEST,
+			Self::InvalidJson => StatusCode::BAD_REQUEST,
+			Self::ValidationError => StatusCode::UNPROCESSABLE_ENTITY,
+			Self::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
+		}
+	}
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,14 +84,19 @@ impl ProblemField {
 }
 
 impl ProblemDetails {
-	pub fn new(problem_type: ProblemType, status: StatusCode) -> Self {
+	pub fn new(problem_type: ProblemType) -> Self {
 		Self {
 			problem_type,
+			status: problem_type.default_status(),
 			title: None,
-			status,
 			detail: None,
 			errors: Vec::new(),
 		}
+	}
+
+	pub fn with_status(mut self, status: StatusCode) -> Self {
+		self.status = status;
+		self
 	}
 
 	pub fn with_title(mut self, title: impl Into<String>) -> Self {
@@ -114,17 +145,6 @@ impl Serialize for ProblemType {
 	where
 		S: Serializer,
 	{
-		serializer.serialize_str(self.as_str())
-	}
-}
-
-impl ProblemType {
-	fn as_str(self) -> &'static str {
-		match self {
-			Self::Custom(problem_type) => problem_type,
-			Self::InvalidJson => "urn:sprouts:problem:invalid-json",
-			Self::ValidationError => "urn:sprouts:problem:validation-error",
-			Self::InternalServerError => "urn:sprouts:problem:internal-server-error",
-		}
+		serializer.serialize_str(&self.uri())
 	}
 }
