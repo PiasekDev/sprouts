@@ -1,7 +1,4 @@
-use axum::{
-	Json,
-	http::StatusCode,
-};
+use axum::{Json, http::StatusCode};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

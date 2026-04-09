@@ -1,63 +1,40 @@
 use super::problem::{ProblemDetails, ProblemField, ProblemType};
 use axum::{
-	Json,
 	extract::rejection::JsonRejection,
-	http::{HeaderValue, StatusCode, header},
+	http::StatusCode,
 	response::{IntoResponse, Response},
 };
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum ApiError {
-	#[error("request body could not be parsed")]
-	InvalidJson {
-		status: StatusCode,
-		title: String,
-		detail: String,
-	},
+pub enum AppError {
+	#[error("api problem")]
+	Api(ProblemDetails),
+
 	#[error(transparent)]
-	InvalidRequest(#[from] RequestValidationError),
+	Unexpected(#[from] color_eyre::Report),
 }
 
-impl IntoResponse for ApiError {
+impl IntoResponse for AppError {
 	fn into_response(self) -> Response {
-		let (status, problem) = match self {
-			Self::InvalidJson {
-				status,
-				title,
-				detail,
-			} => (
-				status,
-				ProblemDetails {
-					problem_type: ProblemType::InvalidJson,
-					title,
-					status,
-					detail,
-					errors: Vec::new(),
-				},
-			),
-			Self::InvalidRequest(validation_error) => (
-				StatusCode::UNPROCESSABLE_ENTITY,
-				ProblemDetails {
-					problem_type: ProblemType::ValidationError,
-					title: "Request validation failed".to_owned(),
-					status: StatusCode::UNPROCESSABLE_ENTITY,
-					detail: "One or more fields are invalid.".to_owned(),
-					errors: validation_error.errors,
-				},
-			),
-		};
+		match self {
+			Self::Api(problem) => problem.into_response(),
+			Self::Unexpected(error) => {
+				tracing::error!(?error, "request failed unexpectedly");
 
-		let mut response = (status, Json(problem)).into_response();
-		response.headers_mut().insert(
-			header::CONTENT_TYPE,
-			HeaderValue::from_static("application/problem+json"),
-		);
-		response
+				ProblemDetails::new(
+					ProblemType::InternalServerError,
+					StatusCode::INTERNAL_SERVER_ERROR,
+				)
+				.with_title("Internal server error")
+				.with_detail("The server could not complete the request.")
+				.into_response()
+			}
+		}
 	}
 }
 
-impl From<JsonRejection> for ApiError {
+impl From<JsonRejection> for ProblemDetails {
 	fn from(rejection: JsonRejection) -> Self {
 		let status = rejection.status();
 		let detail = rejection.body_text();
@@ -71,11 +48,9 @@ impl From<JsonRejection> for ApiError {
 			_ => "Request body could not be read",
 		};
 
-		Self::InvalidJson {
-			status,
-			title: title.to_owned(),
-			detail,
-		}
+		ProblemDetails::new(ProblemType::InvalidJson, status)
+			.with_title(title)
+			.with_detail(detail)
 	}
 }
 
@@ -88,5 +63,29 @@ pub struct RequestValidationError {
 impl RequestValidationError {
 	pub fn from_errors(errors: Vec<ProblemField>) -> Self {
 		Self { errors }
+	}
+}
+
+impl From<RequestValidationError> for AppError {
+	fn from(error: RequestValidationError) -> Self {
+		ProblemDetails::from(error).into()
+	}
+}
+
+impl From<ProblemDetails> for AppError {
+	fn from(problem: ProblemDetails) -> Self {
+		Self::Api(problem)
+	}
+}
+
+impl From<RequestValidationError> for ProblemDetails {
+	fn from(error: RequestValidationError) -> Self {
+		ProblemDetails::new(
+			ProblemType::ValidationError,
+			StatusCode::UNPROCESSABLE_ENTITY,
+		)
+		.with_title("Request validation failed")
+		.with_detail("One or more fields are invalid.")
+		.with_errors(error.errors)
 	}
 }

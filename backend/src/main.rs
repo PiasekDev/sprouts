@@ -1,5 +1,4 @@
-use axum::Router;
-use backend::api;
+use backend::{AppState, app};
 use color_eyre::Result;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
@@ -24,7 +23,8 @@ async fn main() -> Result<()> {
 
 	sqlx::migrate!("../migrations").run(&db_pool).await?;
 
-	let app = Router::new().nest("/api", api::router());
+	let state = AppState { db_pool };
+	let app = app(state);
 
 	let listener = tokio::net::TcpListener::bind(&bind_address).await?;
 
