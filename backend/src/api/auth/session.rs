@@ -1,6 +1,10 @@
 use axum::{
 	extract::FromRequestParts,
-	http::{HeaderMap, HeaderValue, StatusCode, header, request::Parts},
+	http::{StatusCode, request::Parts},
+};
+use axum_extra::extract::{
+	CookieJar,
+	cookie::{Cookie, SameSite},
 };
 use color_eyre::eyre::WrapErr;
 use thiserror::Error;
@@ -15,7 +19,10 @@ use crate::domain::username::Username;
 
 pub const SESSION_COOKIE_NAME: &str = "sprouts_session";
 
-pub struct SessionCookie(SessionToken);
+pub struct SessionCookie {
+	config: AuthCookieConfig,
+	token: SessionToken,
+}
 
 pub struct CurrentUser {
 	pub id: Uuid,
@@ -27,41 +34,32 @@ pub struct CurrentUser {
 struct AuthenticationRequired;
 
 impl SessionCookie {
-	pub fn new(session_token: SessionToken) -> Self {
-		Self(session_token)
+	pub fn new(config: AuthCookieConfig, token: SessionToken) -> Self {
+		Self { config, token }
 	}
 
-	pub fn from_headers(headers: &HeaderMap) -> Option<Self> {
-		headers
-			.get_all(header::COOKIE)
-			.iter()
-			.filter_map(|header_value| header_value.to_str().ok())
-			.find_map(Self::from_cookie_header)
-	}
-
-	fn from_cookie_header(cookie_header: &str) -> Option<Self> {
-		cookie_header
-			.split(';')
-			.filter_map(|cookie| cookie.trim().split_once('='))
-			.find_map(|(name, value)| {
-				(name == SESSION_COOKIE_NAME)
-					.then(|| Self::new(SessionToken::new(value.to_owned())))
-			})
+	pub fn from_jar(config: AuthCookieConfig, jar: &CookieJar) -> Option<Self> {
+		jar.get(SESSION_COOKIE_NAME)
+			.map(|cookie| Self::new(config, SessionToken::new(cookie.value().to_owned())))
 	}
 
 	pub fn token_hash(&self) -> SessionTokenHash {
-		self.0.hash()
+		self.token.hash()
 	}
 
-	pub fn into_header_value(self, config: AuthCookieConfig) -> HeaderValue {
-		let secure = if config.secure { "; Secure" } else { "" };
-		let max_age_seconds = config.max_age.whole_seconds();
-		let value = format!(
-			"{SESSION_COOKIE_NAME}={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age_seconds}{secure}",
-			self.0.as_ref(),
-		);
+	pub fn into_cookie(self) -> Cookie<'static> {
+		let mut cookie = Cookie::build((SESSION_COOKIE_NAME, self.token.as_ref().to_owned()))
+			.path("/")
+			.http_only(true)
+			.same_site(SameSite::Lax)
+			.secure(self.config.secure)
+			.build();
+		cookie.set_max_age(self.config.max_age);
+		cookie
+	}
 
-		HeaderValue::from_str(&value).expect("session cookie should be a valid header value")
+	pub fn removal() -> Cookie<'static> {
+		Cookie::build(SESSION_COOKIE_NAME).path("/").build()
 	}
 }
 
@@ -72,8 +70,9 @@ impl FromRequestParts<AppState> for CurrentUser {
 		parts: &mut Parts,
 		state: &AppState,
 	) -> Result<Self, Self::Rejection> {
-		let session_cookie =
-			SessionCookie::from_headers(&parts.headers).ok_or(AuthenticationRequired)?;
+		let jar = CookieJar::from_headers(&parts.headers);
+		let session_cookie = SessionCookie::from_jar(state.config.auth_cookie, &jar)
+			.ok_or(AuthenticationRequired)?;
 		let session_token_hash = session_cookie.token_hash();
 		let user = sqlx::query!(
 			r#"
@@ -89,8 +88,9 @@ impl FromRequestParts<AppState> for CurrentUser {
 		.await
 		.wrap_err("failed to resolve authenticated user from session")?
 		.ok_or(AuthenticationRequired)?;
-		let username = Username::try_new(user.username)
-			.wrap_err("invariant violated: resolved db session contained an invalid username")?;
+
+		// SAFETY: The username in the database is guaranteed to be valid as it is validated during user registration.
+		let username = unsafe { Username::new_unchecked(user.username) };
 
 		Ok(Self {
 			id: user.id,

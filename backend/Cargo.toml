@@ -6,11 +6,11 @@ edition = "2024"
 [dependencies]
 argon2 = { version = "0.5", features = ["alloc", "password-hash", "rand", "std"] }
 axum = "0.8.8"
-axum-extra = { version = "0.12.5", features = ["with-rejection"] }
+axum-extra = { version = "0.12.5", features = ["with-rejection", "cookie"] }
 color-eyre = "0.6"
 dotenvy = "0.15"
 hex = "0.4"
-nutype = "0.6"
+nutype = { version = "0.6", features = ["new_unchecked"] }
 serde = { version = "1", features = ["derive"] }
 serde_fields = "0.1"
 sha2 = "0.11.0"

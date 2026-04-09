@@ -1,11 +1,5 @@
-use axum::{
-	Json,
-	body::Body,
-	extract::State,
-	http::{StatusCode, header},
-	response::Response,
-};
-use axum_extra::extract::WithRejection;
+use axum::{Json, extract::State, http::StatusCode};
+use axum_extra::extract::{CookieJar, WithRejection};
 use color_eyre::eyre::WrapErr;
 use serde::Deserialize;
 use serde_fields::SerdeField;
@@ -32,11 +26,12 @@ pub struct LoginRequest {
 
 pub async fn handler(
 	State(app_state): State<AppState>,
+	jar: CookieJar,
 	WithRejection(Json(dto), _): WithRejection<Json<LoginRequestDto>, ProblemDetails>,
-) -> Result<Response, AppError> {
+) -> Result<(StatusCode, CookieJar), AppError> {
 	let LoginRequest { username, password } = LoginRequest::try_from(dto)?;
 	let user_id = authenticate(&app_state.db_pool, &username, &password).await?;
-	let session_cookie = SessionCookie::new(SessionToken::generate());
+	let session_cookie = SessionCookie::new(app_state.config.auth_cookie, SessionToken::generate());
 	create_session(
 		&app_state.db_pool,
 		user_id,
@@ -46,12 +41,9 @@ pub async fn handler(
 	.await
 	.wrap_err("failed to create session during login")?;
 
-	let session_cookie_header = session_cookie.into_header_value(app_state.config.auth_cookie);
-	Ok(Response::builder()
-		.status(StatusCode::NO_CONTENT)
-		.header(header::SET_COOKIE, session_cookie_header)
-		.body(Body::empty())
-		.expect("login response should be a valid response"))
+	let jar = jar.add(session_cookie.into_cookie());
+
+	Ok((StatusCode::NO_CONTENT, jar))
 }
 
 #[derive(Debug, Error)]
