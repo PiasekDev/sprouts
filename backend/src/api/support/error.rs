@@ -1,4 +1,5 @@
 use super::problem::{ProblemDetails, ProblemField, ProblemType};
+use super::validation::ProblemSpec;
 use axum::{
 	extract::rejection::JsonRejection,
 	response::{IntoResponse, Response},
@@ -12,6 +13,12 @@ pub enum AppError {
 
 	#[error(transparent)]
 	Unexpected(#[from] color_eyre::Report),
+}
+
+impl From<ProblemDetails> for AppError {
+	fn from(problem: ProblemDetails) -> Self {
+		Self::Api(problem)
+	}
 }
 
 impl IntoResponse for AppError {
@@ -61,6 +68,14 @@ impl RequestValidationError {
 	pub fn from_errors(errors: Vec<ProblemField>) -> Self {
 		Self { errors }
 	}
+
+	pub(crate) fn for_field(field_name: impl AsRef<str>, error: impl ProblemSpec) -> Self {
+		Self::from_errors(vec![ProblemField::for_field(
+			field_name,
+			error.code(),
+			error.detail(),
+		)])
+	}
 }
 
 impl From<RequestValidationError> for AppError {
@@ -69,17 +84,11 @@ impl From<RequestValidationError> for AppError {
 	}
 }
 
-impl From<ProblemDetails> for AppError {
-	fn from(problem: ProblemDetails) -> Self {
-		Self::Api(problem)
-	}
-}
-
 impl From<RequestValidationError> for ProblemDetails {
 	fn from(error: RequestValidationError) -> Self {
 		ProblemDetails::new(ProblemType::ValidationError)
-		.with_title("Request validation failed")
-		.with_detail("One or more fields are invalid.")
-		.with_errors(error.errors)
+			.with_title("Request validation failed")
+			.with_detail("One or more fields are invalid.")
+			.with_errors(error.errors)
 	}
 }

@@ -7,7 +7,6 @@ use sqlx::PgPool;
 use thiserror::Error;
 
 use crate::api::support::problem::{ProblemDetails, ProblemField, ProblemType};
-use crate::api::support::validation::{Validated, ValidationProblems};
 use crate::domain::password_hash::PasswordHash;
 use crate::domain::plain_password::PlainPassword;
 use crate::domain::username::Username;
@@ -121,48 +120,13 @@ impl TryFrom<RegisterRequestDto> for RegisterRequest {
 
 	fn try_from(dto: RegisterRequestDto) -> Result<Self, Self::Error> {
 		let RegisterRequestDto { username, password } = dto;
-		let mut problems = ValidationProblems::new();
+		let username = Username::try_new(username).map_err(|error| {
+			RequestValidationError::for_field(RegisterRequestDtoSerdeField::Username, error)
+		})?;
+		let password = PlainPassword::try_new(password).map_err(|error| {
+			RequestValidationError::for_field(RegisterRequestDtoSerdeField::Password, error)
+		})?;
 
-		let draft = RegisterRequestDraft {
-			username: problems.field(
-				RegisterRequestDtoSerdeField::Username,
-				Username::try_new(username),
-			),
-			password: problems.field(
-				RegisterRequestDtoSerdeField::Password,
-				PlainPassword::try_new(password),
-			),
-		};
-
-		draft.into_result(problems)
-	}
-}
-
-struct RegisterRequestDraft {
-	username: Validated<Username>,
-	password: Validated<PlainPassword>,
-}
-
-impl RegisterRequestDraft {
-	fn into_result(
-		self,
-		problems: ValidationProblems,
-	) -> Result<RegisterRequest, RequestValidationError> {
-		let Self { username, password } = self;
-		let errors = problems.into_errors();
-
-		match (username, password) {
-			(Validated::Valid(username), Validated::Valid(password)) if errors.is_empty() => {
-				Ok(RegisterRequest { username, password })
-			}
-			(_, _) if !errors.is_empty() => Err(RequestValidationError::from_errors(errors)),
-			_ => Err(RequestValidationError::from_errors(vec![
-				ProblemField::new(
-					"#",
-					"validation_incomplete",
-					"request validation could not be completed successfully",
-				),
-			])),
-		}
+		Ok(Self { username, password })
 	}
 }
