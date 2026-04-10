@@ -146,7 +146,6 @@ input {
 
 .panel-bar__title p,
 .section-block__header p,
-.draft-list p,
 .feedback {
 	margin: 6px 0 0;
 	color: var(--muted);
@@ -190,8 +189,7 @@ input {
 
 .meta-row span,
 .info-cell span,
-label span,
-.step-list {
+label span {
 	display: block;
 	font-size: 0.78rem;
 	color: var(--muted);
@@ -315,26 +313,57 @@ label span,
 }
 
 .game-strip {
-	display: flex;
-	flex-wrap: wrap;
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, auto));
+	align-items: end;
 	gap: 18px;
 	padding-bottom: 14px;
 	border-bottom: 1px solid var(--border);
 }
 
-.game-fact span,
+.game-player span,
+.game-status span,
+.join-code-panel span,
 .game-sidebar__header p {
 	display: block;
 	font-size: 0.78rem;
 	color: var(--muted);
 }
 
-.game-fact strong {
+.game-player strong,
+.game-status strong,
+.join-code-panel strong {
 	display: block;
 	margin-top: 4px;
 	font-size: 0.92rem;
 	font-family: var(--mono-font);
 	color: var(--muted-strong);
+}
+
+.game-player,
+.game-status {
+	min-width: 0;
+}
+
+.game-player {
+	padding-right: 18px;
+	border-right: 1px solid var(--border);
+}
+
+.join-code-panel {
+	justify-self: end;
+}
+
+.join-code-panel__row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 4px;
+}
+
+.join-code-panel__row .button--ghost {
+	min-height: 32px;
+	padding: 0 10px;
 }
 
 .game-sidebar {
@@ -355,6 +384,25 @@ label span,
 .game-sidebar__header p {
 	margin: 8px 0 0;
 	line-height: 1.45;
+}
+
+.draft-note {
+	margin: 0;
+	padding: 10px 0 14px;
+	border-bottom: 1px solid var(--border);
+	color: var(--muted);
+	line-height: 1.45;
+}
+
+.draft-actions {
+	display: flex;
+	justify-content: flex-start;
+	padding-top: 4px;
+}
+
+.draft-actions .button--ghost {
+	min-height: 32px;
+	padding: 0 10px;
 }
 
 .section-block__header {
@@ -558,15 +606,6 @@ button:disabled {
 	stroke-width: 2;
 }
 
-.draft-list {
-	padding: 0 0 14px;
-	border-bottom: 1px solid var(--border);
-}
-
-.draft-list p {
-	margin: 0;
-}
-
 .draft-state {
 	display: grid;
 	gap: 8px;
@@ -580,12 +619,6 @@ button:disabled {
 	color: var(--muted-strong);
 	font-family: var(--mono-font);
 	font-size: 0.84rem;
-}
-
-.step-list {
-	margin: 0;
-	padding-left: 18px;
-	line-height: 1.7;
 }
 
 .control-row {
@@ -631,7 +664,8 @@ button:disabled {
 	.stack-grid,
 	.action-center,
 	.auth-grid,
-	.join-inline {
+	.join-inline,
+	.game-strip {
 		grid-template-columns: 1fr;
 	}
 
@@ -656,6 +690,15 @@ button:disabled {
 		border-left: 0;
 		border-top: 1px solid var(--border);
 		padding-top: 20px;
+	}
+
+	.game-player {
+		padding-right: 0;
+		border-right: 0;
+	}
+
+	.join-code-panel {
+		justify-self: start;
 	}
 
 	.error-toast-stack {

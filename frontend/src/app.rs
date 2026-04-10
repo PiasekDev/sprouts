@@ -392,14 +392,6 @@ fn GamePage() -> impl IntoView {
 
 	let on_reset_draft = move |_| draft.set(DraftMove::empty());
 
-	let on_submit_move = move |_| {
-		if draft.get().to_request().is_none() {
-			return;
-		}
-
-		submit_draft_move(game_id(), draft.get(), game, draft, toasts, next_toast_id);
-	};
-
 	view! {
 		<section class="page">
 			<div class="main-panel main-panel--game">
@@ -436,35 +428,60 @@ fn GamePage() -> impl IntoView {
 						let selected_start_spot_id = draft.get().start_spot.as_ref().map(|spot| spot.id);
 						let selected_end_spot_id = draft.get().end_spot.as_ref().map(|spot| spot.id);
 						let current_turn = turn_label(&current_game, current_user.get().as_ref());
-						let players = players_label(&current_game);
 						let outcome = winner_label(&current_game, current_user.get().as_ref());
 						let draft_state = draft_state_lines(&draft.get());
+						let draft_hint = draft_hint(&current_game, current_user.get().as_ref(), &draft.get());
+						let host_name = player_one_name(&current_game).to_string();
+						let guest_name = player_two_name(&current_game)
+							.map(str::to_owned)
+							.unwrap_or_else(|| "Waiting for player".to_string());
+						let waiting_join_code = waiting_join_code(&current_game).map(str::to_owned);
+						let is_my_turn = is_current_users_turn(&current_game, current_user.get().as_ref());
 
 						view! {
 							<div class="panel-body panel-body--game">
 								<section class="game-stage">
 									<div class="game-strip">
-										<div class="game-fact">
-											<span>"Game id"</span>
-											<strong>{current_game.id().to_string()}</strong>
+										<div class="game-player" data-side="left">
+											<span>"Player 1"</span>
+											<strong>{host_name}</strong>
 										</div>
-										<div class="game-fact">
-											<span>"Join code"</span>
-											<strong>{current_game.join_code().to_string()}</strong>
+										<div class="game-player" data-side="right">
+											<span>"Player 2"</span>
+											<strong>{guest_name}</strong>
 										</div>
-										<div class="game-fact">
-											<span>"Players"</span>
-											<strong>{players}</strong>
-										</div>
-										<div class="game-fact">
+										<div class="game-status">
 											<span>"Turn"</span>
 											<strong>{current_turn}</strong>
 										</div>
 										{outcome.map(|winner| {
 											view! {
-												<div class="game-fact">
+												<div class="game-status">
 													<span>"Winner"</span>
 													<strong>{winner}</strong>
+												</div>
+											}
+										})}
+										{waiting_join_code.map(|join_code| {
+											let join_code_for_copy = join_code.clone();
+											view! {
+												<div class="join-code-panel">
+													<span>"Join code"</span>
+													<div class="join-code-panel__row">
+														<strong>{join_code}</strong>
+														<button
+															class="button--ghost"
+															on:click=move |_| {
+																copy_to_clipboard(
+																	toasts,
+																	next_toast_id,
+																	join_code_for_copy.clone(),
+																);
+															}
+														>
+															"Copy"
+														</button>
+													</div>
 												</div>
 											}
 										})}
@@ -579,13 +596,15 @@ fn GamePage() -> impl IntoView {
 								<aside class="game-sidebar">
 									<div class="game-sidebar__header">
 										<div>
-											<h2>"Draft move"</h2>
-											<p>"Build the polyline in four steps and submit once."</p>
+											<h2>"Move"</h2>
+											<p>{draft_hint}</p>
 										</div>
 									</div>
-									<div class="draft-list">
-										<p>{move || draft_summary(&draft.get())}</p>
-									</div>
+									<Show when=move || is_my_turn>
+										<p class="draft-note">
+											"Click a spot to begin. The move is submitted automatically when you place the new spot."
+										</p>
+									</Show>
 									<div class="draft-state">
 										<For
 											each=move || draft_state.clone()
@@ -595,23 +614,13 @@ fn GamePage() -> impl IntoView {
 											}
 										/>
 									</div>
-									<ul class="step-list">
-										<li>"1. Select start spot"</li>
-										<li>"2. Add intermediate points"</li>
-										<li>"3. Select end spot"</li>
-										<li>"4. Place the new spot"</li>
-									</ul>
-									<div class="control-row">
-										<button class="button--ghost" on:click=on_reset_draft>
-											"Reset"
-										</button>
-										<button
-											prop:disabled=move || !draft.get().can_submit()
-											on:click=on_submit_move
-										>
-											"Submit move"
-										</button>
-									</div>
+									<Show when=move || !draft.get().points.is_empty()>
+										<div class="draft-actions">
+											<button class="button--ghost" on:click=on_reset_draft>
+												"Clear line"
+											</button>
+										</div>
+									</Show>
 								</aside>
 							</div>
 						}
@@ -732,20 +741,6 @@ fn status_label(game: &GameResponse) -> &'static str {
 	}
 }
 
-fn players_label(game: &GameResponse) -> String {
-	match game {
-		GameResponse::Waiting { player1, .. } => {
-			format!("{} · waiting for another player", player1.username)
-		}
-		GameResponse::Active {
-			player1, player2, ..
-		}
-		| GameResponse::Finished {
-			player1, player2, ..
-		} => format!("{} vs {}", player1.username, player2.username),
-	}
-}
-
 fn turn_label(game: &GameResponse, current_user: Option<&User>) -> String {
 	match game {
 		GameResponse::Waiting { .. } => "Game has not started yet".to_string(),
@@ -794,6 +789,53 @@ fn winner_label(game: &GameResponse, current_user: Option<&User>) -> Option<Stri
 			)
 		}
 		_ => None,
+	}
+}
+
+fn player_one_name(game: &GameResponse) -> &str {
+	match game {
+		GameResponse::Waiting { player1, .. }
+		| GameResponse::Active { player1, .. }
+		| GameResponse::Finished { player1, .. } => &player1.username,
+	}
+}
+
+fn player_two_name(game: &GameResponse) -> Option<&str> {
+	match game {
+		GameResponse::Waiting { .. } => None,
+		GameResponse::Active { player2, .. } | GameResponse::Finished { player2, .. } => {
+			Some(&player2.username)
+		}
+	}
+}
+
+fn waiting_join_code(game: &GameResponse) -> Option<&str> {
+	match game {
+		GameResponse::Waiting { join_code, .. } => Some(join_code),
+		_ => None,
+	}
+}
+
+fn is_current_users_turn(game: &GameResponse, current_user: Option<&User>) -> bool {
+	match game {
+		GameResponse::Active {
+			current_turn_user_id,
+			..
+		} => current_user.map(|user| user.id) == Some(*current_turn_user_id),
+		_ => false,
+	}
+}
+
+fn draft_hint(game: &GameResponse, current_user: Option<&User>, draft: &DraftMove) -> String {
+	match game {
+		GameResponse::Waiting { .. } => {
+			"Share the join code above and wait for a second player.".to_string()
+		}
+		GameResponse::Finished { .. } => "The game is finished.".to_string(),
+		GameResponse::Active { .. } if !is_current_users_turn(game, current_user) => {
+			"Wait for the other player to finish their move.".to_string()
+		}
+		GameResponse::Active { .. } => draft_summary(draft),
 	}
 }
 
@@ -852,6 +894,26 @@ fn dismiss_toast(toasts: RwSignal<Vec<Toast>>, toast_id: u64) {
 fn push_api_error(toasts: RwSignal<Vec<Toast>>, next_toast_id: RwSignal<u64>, api_error: ApiError) {
 	let (title, message) = toast_content_for_api_error(&api_error);
 	push_toast(toasts, next_toast_id, title, message);
+}
+
+fn copy_to_clipboard(toasts: RwSignal<Vec<Toast>>, next_toast_id: RwSignal<u64>, text: String) {
+	let Some(window) = web_sys::window() else {
+		push_toast(
+			toasts,
+			next_toast_id,
+			"Copy failed".to_string(),
+			"The browser clipboard API is not available here.".to_string(),
+		);
+		return;
+	};
+
+	let _ = window.navigator().clipboard().write_text(&text);
+	push_toast(
+		toasts,
+		next_toast_id,
+		"Join code copied".to_string(),
+		format!("{text} copied to the clipboard."),
+	);
 }
 
 fn toast_content_for_api_error(api_error: &ApiError) -> (String, String) {
