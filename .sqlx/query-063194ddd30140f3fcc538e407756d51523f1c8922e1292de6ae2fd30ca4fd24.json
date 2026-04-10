@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n\t\tINSERT INTO sessions (user_id, token_hash, expires_at)\n\t\tVALUES ($1, $2, NOW() + ($3 * INTERVAL '1 second'))\n\t\t",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "063194ddd30140f3fcc538e407756d51523f1c8922e1292de6ae2fd30ca4fd24"
+}

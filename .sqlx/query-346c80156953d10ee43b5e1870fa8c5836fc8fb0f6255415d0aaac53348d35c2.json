@@ -1,0 +1,39 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n\t\tUPDATE games\n\t\tSET\n\t\t\tplayer2_user_id = $2,\n\t\t\tcurrent_turn_user_id = player1_user_id,\n\t\t\tstatus = $3,\n\t\t\tupdated_at = NOW()\n\t\tWHERE id = $1\n\t\t\tAND player2_user_id IS NULL\n\t\t\tAND status = $4\n\t\t",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "game_status",
+            "kind": {
+              "Enum": [
+                "waiting",
+                "active",
+                "finished"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "game_status",
+            "kind": {
+              "Enum": [
+                "waiting",
+                "active",
+                "finished"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "346c80156953d10ee43b5e1870fa8c5836fc8fb0f6255415d0aaac53348d35c2"
+}

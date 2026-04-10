@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n\t\tINSERT INTO moves (\n\t\t\tgame_id,\n\t\t\tplayer_user_id,\n\t\t\tmove_number,\n\t\t\tstart_spot_id,\n\t\t\tend_spot_id,\n\t\t\tpath_jsonb,\n\t\t\tnew_spot_jsonb\n\t\t)\n\t\tVALUES ($1, $2, $3, $4, $5, $6, $7)\n\t\t",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d73392f45dc4ac20d1492cf1fd7b4de3a9a5497aca12cb8dbc4e4dde7fbc377"
+}

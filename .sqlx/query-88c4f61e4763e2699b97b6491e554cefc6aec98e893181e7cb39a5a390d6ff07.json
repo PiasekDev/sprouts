@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n\t\tSELECT\n\t\t\tstatus AS \"status!: GameStatus\",\n\t\t\tplayer1_user_id,\n\t\t\tplayer2_user_id,\n\t\t\tcurrent_turn_user_id,\n\t\t\tboard_state_jsonb AS \"board_state_jsonb!: sqlx::types::Json<BoardState>\"\n\t\tFROM games\n\t\tWHERE id = $1\n\t\t\tAND ($2 = player1_user_id OR $2 = player2_user_id)\n\t\tFOR UPDATE\n\t\t",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status!: GameStatus",
+        "type_info": {
+          "Custom": {
+            "name": "game_status",
+            "kind": {
+              "Enum": [
+                "waiting",
+                "active",
+                "finished"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "player1_user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "player2_user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "current_turn_user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "board_state_jsonb!: sqlx::types::Json<BoardState>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "88c4f61e4763e2699b97b6491e554cefc6aec98e893181e7cb39a5a390d6ff07"
+}

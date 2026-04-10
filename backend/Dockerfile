@@ -1,6 +1,7 @@
 FROM rust:1.94-trixie AS builder
 
 WORKDIR /workspace
+ENV SQLX_OFFLINE=true
 
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY backend/Cargo.toml backend/Cargo.toml

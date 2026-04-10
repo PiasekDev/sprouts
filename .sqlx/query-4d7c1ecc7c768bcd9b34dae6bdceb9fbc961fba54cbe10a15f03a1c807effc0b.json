@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n\t\tSELECT EXISTS (\n\t\t\tSELECT 1\n\t\t\tFROM users\n\t\t\tWHERE username = $1\n\t\t) AS \"exists!\"\n\t\t",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4d7c1ecc7c768bcd9b34dae6bdceb9fbc961fba54cbe10a15f03a1c807effc0b"
+}

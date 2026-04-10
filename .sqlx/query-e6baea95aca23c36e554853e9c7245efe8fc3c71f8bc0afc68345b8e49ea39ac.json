@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n\t\tUPDATE games\n\t\tSET\n\t\t\tboard_state_jsonb = $2,\n\t\t\tcurrent_turn_user_id = $3,\n\t\t\tupdated_at = NOW()\n\t\tWHERE id = $1\n\t\t",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e6baea95aca23c36e554853e9c7245efe8fc3c71f8bc0afc68345b8e49ea39ac"
+}

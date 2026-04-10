@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n\t\tINSERT INTO games (status, player1_user_id, join_code, board_state_jsonb)\n\t\tVALUES ($1, $2, $3, $4)\n\t\tRETURNING id\n\t\t",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "game_status",
+            "kind": {
+              "Enum": [
+                "waiting",
+                "active",
+                "finished"
+              ]
+            }
+          }
+        },
+        "Uuid",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "19bffe44a8ea11fb6d2453c8507585cb30600d47ee35fe767bf3ef785b453789"
+}
