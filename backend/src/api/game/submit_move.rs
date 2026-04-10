@@ -87,8 +87,11 @@ async fn submit_move(
 	game_id: Uuid,
 	current_user: &CurrentUser,
 	submitted_move: SubmittedMove,
-) -> color_eyre::Result<()> {
-	let mut tx = db_pool.begin().await?;
+) -> Result<(), AppError> {
+	let mut tx = db_pool
+		.begin()
+		.await
+		.wrap_err("failed to begin transaction during move submission")?;
 	let game = fetch_game_context(&mut tx, game_id, current_user)
 		.await?
 		.ok_or(MoveError::GameNotFound)?;
@@ -146,7 +149,8 @@ async fn submit_move(
 		new_spot_jsonb,
 	)
 	.execute(&mut *tx)
-	.await?;
+	.await
+	.wrap_err("failed to persist move during move submission")?;
 
 	sqlx::query!(
 		r#"
@@ -162,9 +166,12 @@ async fn submit_move(
 		next_turn_user_id,
 	)
 	.execute(&mut *tx)
-	.await?;
+	.await
+	.wrap_err("failed to update game state during move submission")?;
 
-	tx.commit().await?;
+	tx.commit()
+		.await
+		.wrap_err("failed to commit move submission transaction")?;
 
 	Ok(())
 }
