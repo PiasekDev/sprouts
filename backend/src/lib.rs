@@ -10,6 +10,7 @@ pub mod api {
 	use axum::Router;
 
 	pub mod auth;
+	pub mod game;
 
 	pub mod support {
 		pub mod error;
@@ -18,11 +19,14 @@ pub mod api {
 	}
 
 	pub fn router() -> Router<AppState> {
-		Router::new().nest("/auth", auth::router())
+		Router::new()
+			.nest("/auth", auth::router())
+			.nest("/game", game::router())
 	}
 }
 
 pub mod domain {
+	pub mod game;
 	pub mod password_hash;
 	pub mod plain_password;
 	pub mod session;
