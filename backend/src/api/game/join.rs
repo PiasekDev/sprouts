@@ -3,16 +3,19 @@ use axum::{
 	extract::{Path, State},
 	http::StatusCode,
 };
+use axum_extra::extract::WithRejection;
 use color_eyre::eyre::{OptionExt, WrapErr};
+use shared::game::{GameResponse, JoinGameRequest, JoinGameRequestSerdeField};
 use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::{GameResponse, fetch_game_for_user};
+use super::fetch_game_for_user;
 use crate::api::auth::session::CurrentUser;
-use crate::api::support::error::AppError;
+use crate::api::support::error::{AppError, RequestValidationError};
 use crate::api::support::problem::{ProblemDetails, ProblemField, ProblemType};
 use crate::domain::game::GameStatus;
+use crate::domain::join_code::JoinCode;
 
 pub async fn handler(
 	State(db_pool): State<PgPool>,
@@ -24,6 +27,30 @@ pub async fn handler(
 		.wrap_err("failed to fetch game summary during join")?
 		.ok_or(JoinGameError::GameNotFound)?;
 
+	join_game(&db_pool, current_user, game).await
+}
+
+pub async fn join_by_code_handler(
+	State(db_pool): State<PgPool>,
+	current_user: CurrentUser,
+	WithRejection(Json(request), _): WithRejection<Json<JoinGameRequest>, ProblemDetails>,
+) -> Result<Json<GameResponse>, AppError> {
+	let join_code = JoinCode::try_new(request.join_code).map_err(|error| {
+		RequestValidationError::for_field(JoinGameRequestSerdeField::JoinCode, error)
+	})?;
+	let game = fetch_game_summary_by_join_code(&db_pool, &join_code)
+		.await
+		.wrap_err("failed to fetch game summary during join by code")?
+		.ok_or(JoinGameError::GameNotFound)?;
+
+	join_game(&db_pool, current_user, game).await
+}
+
+async fn join_game(
+	db_pool: &PgPool,
+	current_user: CurrentUser,
+	game: GameSummary,
+) -> Result<Json<GameResponse>, AppError> {
 	if game.player1_user_id == current_user.id {
 		return Err(JoinGameError::CannotJoinOwnGame.into());
 	}
@@ -49,7 +76,7 @@ pub async fn handler(
 		GameStatus::Active as GameStatus,
 		GameStatus::Waiting as GameStatus,
 	)
-	.execute(&db_pool)
+	.execute(db_pool)
 	.await
 	.wrap_err("failed to join game")?
 	.rows_affected();
@@ -58,7 +85,7 @@ pub async fn handler(
 		return Err(JoinGameError::GameNotJoinable.into());
 	}
 
-	let game = fetch_game_for_user(&db_pool, game_id, &current_user)
+	let game = fetch_game_for_user(db_pool, game.id, &current_user)
 		.await
 		.wrap_err("failed to fetch joined game")?
 		.ok_or_eyre("joined game could not be fetched for the joining player")?;
@@ -89,6 +116,29 @@ async fn fetch_game_summary(
 		WHERE id = $1
 		"#,
 		game_id,
+	)
+	.fetch_optional(db_pool)
+	.await?;
+
+	Ok(game)
+}
+
+async fn fetch_game_summary_by_join_code(
+	db_pool: &PgPool,
+	join_code: &JoinCode,
+) -> color_eyre::Result<Option<GameSummary>> {
+	let game = sqlx::query_as!(
+		GameSummary,
+		r#"
+		SELECT
+			id,
+			status AS "status!: GameStatus",
+			player1_user_id,
+			player2_user_id
+		FROM games
+		WHERE join_code = $1
+		"#,
+		join_code.as_ref(),
 	)
 	.fetch_optional(db_pool)
 	.await?;

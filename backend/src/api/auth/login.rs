@@ -1,8 +1,7 @@
 use axum::{Json, extract::State, http::StatusCode};
 use axum_extra::extract::{CookieJar, WithRejection};
 use color_eyre::eyre::WrapErr;
-use serde::Deserialize;
-use serde_fields::SerdeField;
+use shared::auth::{LoginRequest, LoginRequestSerdeField};
 use sqlx::PgPool;
 use thiserror::Error;
 use time::Duration;
@@ -19,7 +18,7 @@ use crate::{
 	api::support::error::{AppError, RequestValidationError},
 };
 
-pub struct LoginRequest {
+pub struct LoginCredentials {
 	pub username: Username,
 	pub password: PlainPassword,
 }
@@ -27,9 +26,9 @@ pub struct LoginRequest {
 pub async fn handler(
 	State(app_state): State<AppState>,
 	jar: CookieJar,
-	WithRejection(Json(dto), _): WithRejection<Json<LoginRequestDto>, ProblemDetails>,
+	WithRejection(Json(dto), _): WithRejection<Json<LoginRequest>, ProblemDetails>,
 ) -> Result<(StatusCode, CookieJar), AppError> {
-	let LoginRequest { username, password } = LoginRequest::try_from(dto)?;
+	let LoginCredentials { username, password } = LoginCredentials::try_from(dto)?;
 	let user_id = authenticate(&app_state.db_pool, &username, &password).await?;
 	let session_cookie = SessionCookie::new(app_state.config.auth_cookie, SessionToken::generate());
 	create_session(
@@ -50,22 +49,16 @@ pub async fn handler(
 #[error("invalid credentials")]
 struct InvalidCredentials;
 
-#[derive(Debug, Deserialize, SerdeField)]
-pub struct LoginRequestDto {
-	pub username: String,
-	pub password: String,
-}
-
-impl TryFrom<LoginRequestDto> for LoginRequest {
+impl TryFrom<LoginRequest> for LoginCredentials {
 	type Error = RequestValidationError;
 
-	fn try_from(dto: LoginRequestDto) -> Result<Self, Self::Error> {
-		let LoginRequestDto { username, password } = dto;
+	fn try_from(dto: LoginRequest) -> Result<Self, Self::Error> {
+		let LoginRequest { username, password } = dto;
 		let username = Username::try_new(username).map_err(|error| {
-			RequestValidationError::for_field(LoginRequestDtoSerdeField::Username, error)
+			RequestValidationError::for_field(LoginRequestSerdeField::Username, error)
 		})?;
 		let password = PlainPassword::try_new(password).map_err(|error| {
-			RequestValidationError::for_field(LoginRequestDtoSerdeField::Password, error)
+			RequestValidationError::for_field(LoginRequestSerdeField::Password, error)
 		})?;
 
 		Ok(Self { username, password })

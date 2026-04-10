@@ -3,13 +3,13 @@ use axum::{
 	routing::{get, post},
 };
 use color_eyre::eyre::WrapErr;
-use serde::Serialize;
+use shared::game::{BoardState, GamePlayer, GameResponse};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::api::auth::session::CurrentUser;
-use crate::domain::game::{BoardState, GameStatus};
+use crate::domain::game::GameStatus;
 
 pub mod create;
 pub mod get;
@@ -19,42 +19,10 @@ pub mod submit_move;
 pub fn router() -> Router<AppState> {
 	Router::new()
 		.route("/", post(create::handler))
+		.route("/join", post(join::join_by_code_handler))
 		.route("/{id}", get(get::handler))
 		.route("/{id}/join", post(join::handler))
 		.route("/{id}/move", post(submit_move::handler))
-}
-
-#[derive(Debug, Serialize)]
-pub struct GamePlayerResponse {
-	pub id: Uuid,
-	pub username: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum GameResponse {
-	Waiting {
-		id: Uuid,
-		join_code: String,
-		player1: GamePlayerResponse,
-		board_state: BoardState,
-	},
-	Active {
-		id: Uuid,
-		join_code: String,
-		player1: GamePlayerResponse,
-		player2: GamePlayerResponse,
-		current_turn_user_id: Uuid,
-		board_state: BoardState,
-	},
-	Finished {
-		id: Uuid,
-		join_code: String,
-		player1: GamePlayerResponse,
-		player2: GamePlayerResponse,
-		winner_user_id: Uuid,
-		board_state: BoardState,
-	},
 }
 
 struct GameRow {
@@ -119,7 +87,7 @@ impl From<GameRow> for GameResponse {
 			winner_user_id,
 			board_state_jsonb,
 		} = game;
-		let player1 = GamePlayerResponse {
+		let player1 = GamePlayer {
 			id: player1_user_id,
 			username: player1_username,
 		};
@@ -136,7 +104,7 @@ impl From<GameRow> for GameResponse {
 				id,
 				join_code,
 				player1,
-				player2: GamePlayerResponse {
+				player2: GamePlayer {
 					id: player2_user_id.expect(
 						"invariant violated: active game did not contain a second player id",
 					),
@@ -152,7 +120,7 @@ impl From<GameRow> for GameResponse {
 				id,
 				join_code,
 				player1,
-				player2: GamePlayerResponse {
+				player2: GamePlayer {
 					id: player2_user_id.expect(
 						"invariant violated: finished game did not contain a second player id",
 					),

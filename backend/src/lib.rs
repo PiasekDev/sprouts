@@ -28,6 +28,7 @@ pub mod api {
 
 pub mod domain {
 	pub mod game;
+	pub mod join_code;
 	pub mod password_hash;
 	pub mod plain_password;
 	pub mod session;

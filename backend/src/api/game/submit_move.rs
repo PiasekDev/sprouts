@@ -5,8 +5,7 @@ use axum::{
 };
 use axum_extra::extract::WithRejection;
 use color_eyre::eyre::{OptionExt, WrapErr};
-use serde::Deserialize;
-use serde_fields::SerdeField;
+use shared::game::{MoveRequest, MoveRequestSerdeField};
 use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
@@ -21,7 +20,7 @@ pub async fn handler(
 	State(db_pool): State<PgPool>,
 	current_user: CurrentUser,
 	Path(game_id): Path<Uuid>,
-	WithRejection(Json(dto), _): WithRejection<Json<MoveRequestDto>, ProblemDetails>,
+	WithRejection(Json(dto), _): WithRejection<Json<MoveRequest>, ProblemDetails>,
 ) -> Result<Json<GameResponse>, AppError> {
 	let submitted_move = SubmittedMove::try_from(dto)?;
 	submit_move(&db_pool, game_id, &current_user, submitted_move).await?;
@@ -33,19 +32,11 @@ pub async fn handler(
 	Ok(Json(game))
 }
 
-#[derive(Debug, Deserialize, SerdeField)]
-pub struct MoveRequestDto {
-	pub start_spot_id: i32,
-	pub end_spot_id: i32,
-	pub points: Vec<[f64; 2]>,
-	pub new_spot: NewSpot,
-}
-
-impl TryFrom<MoveRequestDto> for SubmittedMove {
+impl TryFrom<MoveRequest> for SubmittedMove {
 	type Error = RequestValidationError;
 
-	fn try_from(dto: MoveRequestDto) -> Result<Self, Self::Error> {
-		let MoveRequestDto {
+	fn try_from(dto: MoveRequest) -> Result<Self, Self::Error> {
+		let MoveRequest {
 			start_spot_id,
 			end_spot_id,
 			points,
@@ -55,7 +46,7 @@ impl TryFrom<MoveRequestDto> for SubmittedMove {
 		if start_spot_id <= 0 {
 			return Err(RequestValidationError::from_errors(vec![
 				ProblemField::for_field(
-					MoveRequestDtoSerdeField::StartSpotId,
+					MoveRequestSerdeField::StartSpotId,
 					"must_be_positive",
 					"must be a positive integer",
 				),
@@ -65,7 +56,7 @@ impl TryFrom<MoveRequestDto> for SubmittedMove {
 		if end_spot_id <= 0 {
 			return Err(RequestValidationError::from_errors(vec![
 				ProblemField::for_field(
-					MoveRequestDtoSerdeField::EndSpotId,
+					MoveRequestSerdeField::EndSpotId,
 					"must_be_positive",
 					"must be a positive integer",
 				),
@@ -75,7 +66,7 @@ impl TryFrom<MoveRequestDto> for SubmittedMove {
 		if points.len() < 2 {
 			return Err(RequestValidationError::from_errors(vec![
 				ProblemField::for_field(
-					MoveRequestDtoSerdeField::Points,
+					MoveRequestSerdeField::Points,
 					"too_short",
 					"must contain at least 2 points",
 				),
