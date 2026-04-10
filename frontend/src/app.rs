@@ -11,6 +11,12 @@ use web_sys::HtmlInputElement;
 use crate::api;
 use crate::model::{DraftMove, GameResponse, LoginRequest, RegisterRequest, Spot, User};
 
+#[derive(Debug, Clone)]
+struct Toast {
+	id: u64,
+	message: String,
+}
+
 #[component]
 pub fn App() -> impl IntoView {
 	view! {
@@ -57,26 +63,26 @@ fn BackgroundStage() -> impl IntoView {
 #[component]
 fn LandingPage() -> impl IntoView {
 	let user = RwSignal::new(None::<User>);
-	let auth_error = RwSignal::new(None::<String>);
-	let lobby_error = RwSignal::new(None::<String>);
+	let toasts = RwSignal::new(Vec::<Toast>::new());
+	let next_toast_id = RwSignal::new(0_u64);
 	let register_username = RwSignal::new(String::new());
 	let register_password = RwSignal::new(String::new());
 	let login_username = RwSignal::new(String::new());
 	let login_password = RwSignal::new(String::new());
 	let join_game_id = RwSignal::new(String::new());
+	let push_error = move |message: String| push_toast(toasts, next_toast_id, message);
 
 	Effect::new(move |_| {
 		spawn_local(async move {
 			match api::me().await {
 				Ok(current_user) => user.set(current_user),
-				Err(error) => auth_error.set(Some(error.to_string())),
+				Err(api_error) => push_error(api_error.to_string()),
 			}
 		});
 	});
 
 	let on_register = move |event: SubmitEvent| {
 		event.prevent_default();
-		auth_error.set(None);
 
 		let payload = RegisterRequest {
 			username: register_username.get(),
@@ -93,18 +99,17 @@ fn LandingPage() -> impl IntoView {
 				{
 					Ok(()) => match api::me().await {
 						Ok(current_user) => user.set(current_user),
-						Err(error) => auth_error.set(Some(error.to_string())),
+						Err(api_error) => push_error(api_error.to_string()),
 					},
-					Err(error) => auth_error.set(Some(error.to_string())),
+					Err(api_error) => push_error(api_error.to_string()),
 				},
-				Err(error) => auth_error.set(Some(error.to_string())),
+				Err(api_error) => push_error(api_error.to_string()),
 			}
 		});
 	};
 
 	let on_login = move |event: SubmitEvent| {
 		event.prevent_default();
-		auth_error.set(None);
 
 		let payload = LoginRequest {
 			username: login_username.get(),
@@ -115,20 +120,18 @@ fn LandingPage() -> impl IntoView {
 			match api::login(&payload).await {
 				Ok(()) => match api::me().await {
 					Ok(current_user) => user.set(current_user),
-					Err(error) => auth_error.set(Some(error.to_string())),
+					Err(api_error) => push_error(api_error.to_string()),
 				},
-				Err(error) => auth_error.set(Some(error.to_string())),
+				Err(api_error) => push_error(api_error.to_string()),
 			}
 		});
 	};
 
 	let on_logout = move |_| {
-		auth_error.set(None);
-
 		spawn_local(async move {
 			match api::logout().await {
 				Ok(()) => user.set(None),
-				Err(error) => auth_error.set(Some(error.to_string())),
+				Err(api_error) => push_error(api_error.to_string()),
 			}
 		});
 	};
@@ -139,117 +142,85 @@ fn LandingPage() -> impl IntoView {
 				<header class="panel-bar">
 					<div class="panel-bar__title">
 						<h1>"Sprouts"</h1>
-						<p>"Axum backend · Leptos client · polling transport"</p>
+						<p>"Create or join a room."</p>
 					</div>
-					<div class="panel-bar__meta">
-						<div class="meta-row">
-							<span>"api"</span>
-							<strong>"/api"</strong>
+					<Show when=move || user.get().is_some()>
+						<div class="panel-bar__session">
+							<span class="session-indicator">
+								{move || {
+									user.get()
+										.map(|current_user| format!("Signed in as {}", current_user.username))
+										.unwrap_or_default()
+								}}
+							</span>
+							<button class="button--ghost" on:click=on_logout>
+								"Logout"
+							</button>
 						</div>
-						<div class="meta-row">
-							<span>"game mode"</span>
-							<strong>"1v1 room"</strong>
-						</div>
-					</div>
+					</Show>
 				</header>
 
 				{move || {
-					if let Some(current_user) = user.get() {
+					if user.get().is_some() {
 						view! {
-							<div class="panel-body">
-								<section class="section-block">
-									<div class="section-block__header">
-										<div>
-											<h2>"Session"</h2>
-											<p>{format!("Signed in as {}", current_user.username)}</p>
-										</div>
-										<button class="button--ghost" on:click=on_logout>
-											"Logout"
-										</button>
-									</div>
-								</section>
-
-								<div class="stack-grid">
-								<section class="section-block">
-									<div class="section-block__header">
-										<div>
-											<h2>"Create game"</h2>
-											<p>"Start a new room with the initial two-spot board."</p>
-										</div>
-									</div>
+							<div class="panel-body panel-body--landing">
+								<section class="action-center">
+									<div class="action-slot">
+										<h2>"Create game"</h2>
+										<p>"Start a new room with the initial two-spot board."</p>
 										<button
 											on:click=move |_| {
-												lobby_error.set(None);
-
 												spawn_local(async move {
 													match api::create_game().await {
 														Ok(game) => go_to(&format!("/game/{}", game.id())),
-														Err(error) => lobby_error.set(Some(error.to_string())),
+														Err(api_error) => push_error(api_error.to_string()),
 													}
 												});
 											}
 										>
 											"Create game"
 										</button>
-									</section>
+									</div>
 
-									<section class="section-block">
-										<div class="section-block__header">
-											<div>
-												<h2>"Join game"</h2>
-												<p>"Enter the 8-character join code and attach this session to the room."</p>
-											</div>
-										</div>
-										<form
-											class="stack-form"
-											on:submit=move |event: SubmitEvent| {
-												event.prevent_default();
-												let game_id = join_game_id.get();
-												lobby_error.set(None);
+									<form
+										class="action-slot action-slot--join"
+										on:submit=move |event: SubmitEvent| {
+											event.prevent_default();
+											let game_id = join_game_id.get();
 
-												spawn_local(async move {
-													match api::join_game(&game_id).await {
-														Ok(game) => go_to(&format!("/game/{}", game.id())),
-														Err(error) => lobby_error.set(Some(error.to_string())),
-													}
-												});
-											}
-										>
-											<label>
-												<span>"Join code"</span>
-												<input
-													placeholder="019D776A"
-													prop:value=move || join_game_id.get()
-													on:input=move |ev| join_game_id.set(event_target_value(&ev))
-												/>
-											</label>
+											spawn_local(async move {
+												match api::join_game(&game_id).await {
+													Ok(game) => go_to(&format!("/game/{}", game.id())),
+													Err(api_error) => push_error(api_error.to_string()),
+												}
+											});
+										}
+									>
+										<h2>"Join game"</h2>
+										<p>"Enter an 8-character room code."</p>
+										<label class="join-label">
+											<span>"Join code"</span>
+										</label>
+										<div class="join-inline">
+											<input
+												placeholder="019D776A"
+												prop:value=move || join_game_id.get()
+												on:input=move |ev| join_game_id.set(event_target_value(&ev))
+											/>
 											<button type="submit">"Join game"</button>
-										</form>
-									</section>
-								</div>
+										</div>
+									</form>
+								</section>
 							</div>
 						}
 							.into_any()
 					} else {
 						view! {
-							<div class="panel-body">
-								<section class="section-block">
-									<div class="section-block__header">
-										<div>
-											<h2>"Authenticate"</h2>
-											<p>"Use the backend session flow before creating or joining a room."</p>
-										</div>
-									</div>
-								</section>
-
-								<div class="stack-grid">
-									<form class="section-block stack-form" on:submit=on_register>
-										<div class="section-block__header">
-											<div>
-												<h2>"Register"</h2>
-												<p>"Create a local user for the MVP."</p>
-											</div>
-										</div>
+							<div class="panel-body panel-body--landing">
+								<div class="auth-grid">
+									<form class="stack-form auth-pane" on:submit=on_register>
+										<h2>"Register"</h2>
+										<p>"Create a local user for this room-based MVP."</p>
 										<label>
 											<span>"Username"</span>
 											<input
@@ -268,13 +239,9 @@ fn LandingPage() -> impl IntoView {
 										<button type="submit">"Create account"</button>
 									</form>
 
-									<form class="section-block stack-form" on:submit=on_login>
-										<div class="section-block__header">
-											<div>
-												<h2>"Login"</h2>
-												<p>"Reuse an existing session-backed account."</p>
-											</div>
-										</div>
+									<form class="stack-form auth-pane" on:submit=on_login>
+										<h2>"Login"</h2>
+										<p>"Reuse an existing session-backed account."</p>
 										<label>
 											<span>"Username"</span>
 											<input
@@ -298,18 +265,8 @@ fn LandingPage() -> impl IntoView {
 							.into_any()
 					}
 				}}
-
-				<Show when=move || auth_error.get().is_some() || lobby_error.get().is_some()>
-					<footer class="panel-footer">
-						<Show when=move || auth_error.get().is_some()>
-							<p class="feedback">{move || auth_error.get().unwrap_or_default()}</p>
-						</Show>
-						<Show when=move || lobby_error.get().is_some()>
-							<p class="feedback">{move || lobby_error.get().unwrap_or_default()}</p>
-						</Show>
-					</footer>
-				</Show>
 			</div>
+			<ErrorToasts toasts=toasts />
 		</section>
 	}
 }
@@ -318,10 +275,12 @@ fn LandingPage() -> impl IntoView {
 fn GamePage() -> impl IntoView {
 	let params = use_params_map();
 	let game = RwSignal::new(None::<GameResponse>);
-	let error = RwSignal::new(None::<String>);
+	let toasts = RwSignal::new(Vec::<Toast>::new());
+	let next_toast_id = RwSignal::new(0_u64);
 	let current_user = RwSignal::new(None::<User>);
 	let draft = RwSignal::new(DraftMove::empty());
 	let hover_point = RwSignal::new(None::<[f64; 2]>);
+	let push_error = move |message: String| push_toast(toasts, next_toast_id, message);
 
 	let game_id = move || params.read().get("id").unwrap_or_default();
 	Effect::new(move |_| {
@@ -340,14 +299,14 @@ fn GamePage() -> impl IntoView {
 						break;
 					}
 					Err(api_error) => {
-						error.set(Some(api_error.to_string()));
+						push_error(api_error.to_string());
 						break;
 					}
 				}
 
 				match api::get_game(&current_game_id).await {
 					Ok(next_game) => game.set(Some(next_game)),
-					Err(api_error) => error.set(Some(api_error.to_string())),
+					Err(api_error) => push_error(api_error.to_string()),
 				}
 
 				TimeoutFuture::new(2_000).await;
@@ -432,7 +391,6 @@ fn GamePage() -> impl IntoView {
 			return;
 		};
 		let id = game_id();
-		error.set(None);
 
 		spawn_local(async move {
 			match api::submit_move(&id, &request).await {
@@ -440,7 +398,7 @@ fn GamePage() -> impl IntoView {
 					game.set(Some(updated_game));
 					draft.set(DraftMove::empty());
 				}
-				Err(api_error) => error.set(Some(api_error.to_string())),
+				Err(api_error) => push_error(api_error.to_string()),
 			}
 		});
 	};
@@ -663,12 +621,8 @@ fn GamePage() -> impl IntoView {
 					}}
 				</Show>
 
-				<Show when=move || error.get().is_some()>
-					<footer class="panel-footer">
-						<p class="feedback">{move || error.get().unwrap_or_default()}</p>
-					</footer>
-				</Show>
 			</div>
+			<ErrorToasts toasts=toasts />
 		</section>
 	}
 }
@@ -689,6 +643,37 @@ fn NotFoundPage() -> impl IntoView {
 				</div>
 			</div>
 		</section>
+	}
+}
+
+#[component]
+fn ErrorToasts(toasts: RwSignal<Vec<Toast>>) -> impl IntoView {
+	view! {
+		<Show when=move || !toasts.get().is_empty()>
+			<div class="error-toast-stack" aria-live="polite">
+				<For
+					each=move || toasts.get()
+					key=|toast| toast.id
+					children=move |toast| {
+						let toast_id = toast.id;
+						view! {
+							<aside class="error-toast" role="alert">
+								<div class="error-toast__content">
+									<strong>"Request failed"</strong>
+									<p>{toast.message}</p>
+								</div>
+								<button
+									class="error-toast__dismiss"
+									on:click=move |_| dismiss_toast(toasts, toast_id)
+								>
+									"Dismiss"
+								</button>
+							</aside>
+						}
+					}
+				/>
+			</div>
+		</Show>
 	}
 }
 
@@ -839,6 +824,26 @@ fn go_to(path: &str) {
 	if let Some(window) = web_sys::window() {
 		let _ = window.location().set_href(path);
 	}
+}
+
+fn push_toast(toasts: RwSignal<Vec<Toast>>, next_toast_id: RwSignal<u64>, message: String) {
+	let toast_id = next_toast_id.get_untracked();
+	next_toast_id.set(toast_id + 1);
+	toasts.update(|items| {
+		items.push(Toast {
+			id: toast_id,
+			message,
+		})
+	});
+
+	spawn_local(async move {
+		TimeoutFuture::new(4_500).await;
+		dismiss_toast(toasts, toast_id);
+	});
+}
+
+fn dismiss_toast(toasts: RwSignal<Vec<Toast>>, toast_id: u64) {
+	toasts.update(|items| items.retain(|toast| toast.id != toast_id));
 }
 
 fn point_distance(left: [f64; 2], right: [f64; 2]) -> f64 {

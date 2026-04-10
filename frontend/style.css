@@ -130,7 +130,7 @@ input {
 
 .panel-bar {
 	display: flex;
-	align-items: flex-start;
+	align-items: center;
 	justify-content: space-between;
 	gap: 24px;
 }
@@ -161,6 +161,18 @@ input {
 	display: flex;
 	gap: 12px;
 	flex-wrap: wrap;
+}
+
+.panel-bar__session {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.session-indicator {
+	color: var(--muted-strong);
+	font-family: var(--mono-font);
+	font-size: 0.9rem;
 }
 
 .panel-bar__meta {
@@ -201,9 +213,73 @@ label span,
 	gap: 20px;
 }
 
+.panel-body--landing {
+	min-height: 420px;
+	justify-content: center;
+}
+
 .panel-body--game {
 	display: grid;
 	grid-template-columns: minmax(0, 2fr) minmax(260px, 0.95fr);
+}
+
+.action-center,
+.auth-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0;
+}
+
+.action-slot,
+.auth-pane {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 24px;
+}
+
+.action-slot + .action-slot,
+.auth-pane + .auth-pane {
+	border-left: 1px solid var(--border);
+}
+
+.action-slot h2,
+.auth-pane h2 {
+	margin: 0;
+	font-size: 1.05rem;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+}
+
+.action-slot p,
+.auth-pane p {
+	margin: 0;
+	color: var(--muted);
+	line-height: 1.45;
+}
+
+.action-slot button {
+	align-self: flex-start;
+}
+
+.join-label {
+	display: block;
+}
+
+.join-inline {
+	display: flex;
+	align-items: flex-end;
+	gap: 8px;
+}
+
+.join-inline input {
+	width: 13ch;
+	min-width: 0;
+	flex: 0 0 auto;
+}
+
+.join-inline button {
+	flex: 0 0 auto;
 }
 
 .stack-grid {
@@ -311,6 +387,55 @@ button:disabled {
 .feedback {
 	margin: 0;
 	color: var(--feedback);
+}
+
+.error-toast-stack {
+	position: fixed;
+	right: 24px;
+	top: 24px;
+	z-index: 4;
+	width: min(420px, calc(100vw - 32px));
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.error-toast {
+	width: 100%;
+	padding: 14px 16px;
+	border: 1px solid rgba(255, 141, 115, 0.28);
+	border-radius: 10px;
+	background: rgba(48, 29, 24, 0.96);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	animation: toast-drop 180ms ease-out;
+}
+
+.error-toast__content {
+	min-width: 0;
+}
+
+.error-toast__content strong {
+	display: block;
+	font-size: 0.92rem;
+}
+
+.error-toast__content p {
+	margin: 6px 0 0;
+	color: #f2c1b3;
+	line-height: 1.45;
+	word-break: break-word;
+}
+
+.error-toast__dismiss {
+	min-height: 32px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--muted-strong);
 }
 
 .board {
@@ -443,19 +568,45 @@ button:disabled {
 	}
 }
 
+@keyframes toast-drop {
+	from {
+		opacity: 0;
+		transform: translateY(-14px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
 @media (max-width: 960px) {
 	.panel-bar,
 	.panel-body--game,
-	.stack-grid {
+	.stack-grid,
+	.action-center,
+	.auth-grid,
+	.join-inline {
 		grid-template-columns: 1fr;
 	}
 
 	.panel-bar {
 		flex-direction: column;
+		align-items: flex-start;
 	}
 
 	.panel-bar__meta {
 		min-width: auto;
 		justify-content: flex-start;
+	}
+
+	.action-slot + .action-slot,
+	.auth-pane + .auth-pane {
+		border-left: 0;
+		border-top: 1px solid var(--border);
+	}
+
+	.error-toast-stack {
+		right: 16px;
+		top: 16px;
 	}
 }
