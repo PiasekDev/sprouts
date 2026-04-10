@@ -8,6 +8,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::api::auth::session::CurrentUser;
 use crate::domain::game::{BoardState, GameStatus};
 
 pub mod create;
@@ -70,7 +71,7 @@ struct GameRow {
 async fn fetch_game_for_user(
 	db_pool: &PgPool,
 	game_id: Uuid,
-	user_id: Uuid,
+	current_user: &CurrentUser,
 ) -> color_eyre::Result<Option<GameResponse>> {
 	let game = sqlx::query_as!(
 		GameRow,
@@ -93,7 +94,7 @@ async fn fetch_game_for_user(
 			AND ($2 = games.player1_user_id OR $2 = games.player2_user_id)
 		"#,
 		game_id,
-		user_id,
+		current_user.id,
 	)
 	.fetch_optional(db_pool)
 	.await

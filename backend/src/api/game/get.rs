@@ -16,7 +16,7 @@ pub async fn handler(
 	current_user: CurrentUser,
 	Path(game_id): Path<Uuid>,
 ) -> Result<Json<GameResponse>, AppError> {
-	let game = fetch_game_for_user(&app_state.db_pool, game_id, current_user.id)
+	let game = fetch_game_for_user(&app_state.db_pool, game_id, &current_user)
 		.await?
 		.ok_or(GameNotFound)?;
 

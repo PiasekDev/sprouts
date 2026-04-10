@@ -59,7 +59,7 @@ pub async fn handler(
 		return Err(JoinGameError::GameNotJoinable.into());
 	}
 
-	let game = fetch_game_for_user(&app_state.db_pool, game_id, current_user.id)
+	let game = fetch_game_for_user(&app_state.db_pool, game_id, &current_user)
 		.await
 		.wrap_err("failed to fetch joined game")?
 		.ok_or_eyre("joined game could not be fetched for the joining player")?;
