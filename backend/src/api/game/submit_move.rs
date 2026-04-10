@@ -215,10 +215,11 @@ async fn fetch_game_context(
 	Ok(game)
 }
 
-// This is the first validation/application pass from the MVP plan.
-// It enforces basic game-state and capacity rules, but does not yet do
-// geometric checks such as edge intersections, self-intersections, or
-// improper touches against unrelated spots and edges.
+// This is the pragmatic MVP validation/application pass.
+// It enforces the basic game-state and capacity rules, and also validates the
+// submitted polyline endpoints, spot touches, self-intersections, and
+// intersections with existing edges. More exact geometry can be tightened
+// later if needed, but the server is already authoritative over move shape.
 fn apply_move(
 	board_state: &mut BoardState,
 	submitted_move: &SubmittedMove,
@@ -241,12 +242,34 @@ fn apply_move(
 		})?;
 	let start_spot = board_state.spots[start_spot_index].clone();
 	let end_spot = board_state.spots[end_spot_index].clone();
+	let start_point = [start_spot.x, start_spot.y];
+	let end_point = [end_spot.x, end_spot.y];
+	let new_spot_point = [submitted_move.new_spot.x, submitted_move.new_spot.y];
+	let points = &submitted_move.points;
+
+	if !point_eq(points[0], start_point) {
+		return Err(MoveError::PathDoesNotStartAtStartSpot);
+	}
+
+	if !point_eq(*points.last().expect("validated non-empty path"), end_point) {
+		return Err(MoveError::PathDoesNotEndAtEndSpot);
+	}
 
 	if is_same_point(&submitted_move.new_spot, &start_spot)
 		|| is_same_point(&submitted_move.new_spot, &end_spot)
 	{
 		return Err(MoveError::NewSpotIsEndpoint);
 	}
+
+	validate_path_segments(points)?;
+	validate_spot_touches(board_state, submitted_move, start_point, end_point)?;
+
+	if !point_on_polyline(new_spot_point, points) {
+		return Err(MoveError::NewSpotNotOnPath);
+	}
+
+	validate_self_intersections(points)?;
+	validate_existing_edge_intersections(board_state, submitted_move, start_point, end_point)?;
 
 	if start_spot.id == end_spot.id {
 		if start_spot.degree > 1 {
@@ -297,8 +320,248 @@ fn apply_move(
 	Ok(())
 }
 
+const EPSILON: f64 = 1e-6;
+
 fn is_same_point(new_spot: &NewSpot, spot: &Spot) -> bool {
-	new_spot.x == spot.x && new_spot.y == spot.y
+	approx_eq(new_spot.x, spot.x) && approx_eq(new_spot.y, spot.y)
+}
+
+fn validate_path_segments(points: &[[f64; 2]]) -> Result<(), MoveError> {
+	for window in points.windows(2) {
+		if point_eq(window[0], window[1]) {
+			return Err(MoveError::PathHasDegenerateSegment);
+		}
+	}
+
+	Ok(())
+}
+
+fn validate_spot_touches(
+	board_state: &BoardState,
+	submitted_move: &SubmittedMove,
+	start_point: [f64; 2],
+	end_point: [f64; 2],
+) -> Result<(), MoveError> {
+	for spot in &board_state.spots {
+		let spot_point = [spot.x, spot.y];
+
+		for (segment_index, segment) in submitted_move.points.windows(2).enumerate() {
+			if !point_on_segment(spot_point, segment[0], segment[1]) {
+				continue;
+			}
+
+			let is_allowed_start_touch = spot.id == submitted_move.start_spot_id
+				&& segment_index == 0
+				&& point_eq(spot_point, start_point)
+				&& point_eq(spot_point, segment[0]);
+			let is_allowed_end_touch = spot.id == submitted_move.end_spot_id
+				&& segment_index == submitted_move.points.len() - 2
+				&& point_eq(spot_point, end_point)
+				&& point_eq(spot_point, segment[1]);
+
+			if !is_allowed_start_touch && !is_allowed_end_touch {
+				return Err(MoveError::PathTouchesExistingSpot { spot_id: spot.id });
+			}
+		}
+	}
+
+	Ok(())
+}
+
+fn validate_self_intersections(points: &[[f64; 2]]) -> Result<(), MoveError> {
+	let segment_count = points.len() - 1;
+	let is_loop = point_eq(points[0], points[points.len() - 1]);
+
+	for i in 0..segment_count {
+		for j in (i + 1)..segment_count {
+			if j == i + 1 {
+				continue;
+			}
+
+			let shared_loop_endpoint = is_loop
+				&& i == 0 && j == segment_count - 1
+				&& point_eq(points[0], points[points.len() - 1]);
+			let allowed_endpoint = shared_loop_endpoint.then_some(points[0]);
+
+			if segments_intersect_improperly(
+				points[i],
+				points[i + 1],
+				points[j],
+				points[j + 1],
+				allowed_endpoint,
+			) {
+				return Err(MoveError::PathSelfIntersects);
+			}
+		}
+	}
+
+	Ok(())
+}
+
+fn validate_existing_edge_intersections(
+	board_state: &BoardState,
+	submitted_move: &SubmittedMove,
+	start_point: [f64; 2],
+	end_point: [f64; 2],
+) -> Result<(), MoveError> {
+	for edge in &board_state.edges {
+		for submitted_segment in submitted_move.points.windows(2) {
+			for existing_segment in edge.points.windows(2) {
+				if segments_intersect_improperly(
+					submitted_segment[0],
+					submitted_segment[1],
+					existing_segment[0],
+					existing_segment[1],
+					None,
+				) {
+					let touches_start_spot = shared_endpoint_is_allowed(
+						submitted_segment[0],
+						submitted_segment[1],
+						existing_segment[0],
+						existing_segment[1],
+						start_point,
+					);
+					let touches_end_spot = shared_endpoint_is_allowed(
+						submitted_segment[0],
+						submitted_segment[1],
+						existing_segment[0],
+						existing_segment[1],
+						end_point,
+					);
+
+					if !touches_start_spot && !touches_end_spot {
+						return Err(MoveError::PathIntersectsExistingEdge);
+					}
+				}
+			}
+		}
+	}
+
+	Ok(())
+}
+
+fn point_on_polyline(point: [f64; 2], points: &[[f64; 2]]) -> bool {
+	points
+		.windows(2)
+		.any(|segment| point_on_segment(point, segment[0], segment[1]))
+}
+
+fn shared_endpoint_is_allowed(
+	a1: [f64; 2],
+	a2: [f64; 2],
+	b1: [f64; 2],
+	b2: [f64; 2],
+	allowed_point: [f64; 2],
+) -> bool {
+	let shared_endpoints = [a1, a2]
+		.into_iter()
+		.flat_map(|point_a| [b1, b2].into_iter().map(move |point_b| (point_a, point_b)));
+
+	for (point_a, point_b) in shared_endpoints {
+		if point_eq(point_a, point_b) && point_eq(point_a, allowed_point) {
+			return true;
+		}
+	}
+
+	false
+}
+
+fn segments_intersect_improperly(
+	a1: [f64; 2],
+	a2: [f64; 2],
+	b1: [f64; 2],
+	b2: [f64; 2],
+	allowed_shared_endpoint: Option<[f64; 2]>,
+) -> bool {
+	if !segments_intersect(a1, a2, b1, b2) {
+		return false;
+	}
+
+	if let Some(allowed_point) = allowed_shared_endpoint {
+		let only_allowed_touch = shared_endpoint_is_allowed(a1, a2, b1, b2, allowed_point)
+			&& !segments_overlap(a1, a2, b1, b2);
+
+		if only_allowed_touch {
+			return false;
+		}
+	}
+
+	if segments_overlap(a1, a2, b1, b2) {
+		return true;
+	}
+
+	let shared_endpoint = [a1, a2]
+		.into_iter()
+		.flat_map(|point_a| [b1, b2].into_iter().map(move |point_b| (point_a, point_b)))
+		.any(|(point_a, point_b)| point_eq(point_a, point_b));
+
+	!shared_endpoint
+}
+
+fn segments_intersect(a1: [f64; 2], a2: [f64; 2], b1: [f64; 2], b2: [f64; 2]) -> bool {
+	let o1 = orientation(a1, a2, b1);
+	let o2 = orientation(a1, a2, b2);
+	let o3 = orientation(b1, b2, a1);
+	let o4 = orientation(b1, b2, a2);
+
+	if o1 != o2 && o3 != o4 {
+		return true;
+	}
+
+	if o1 == 0 && point_on_segment(b1, a1, a2) {
+		return true;
+	}
+	if o2 == 0 && point_on_segment(b2, a1, a2) {
+		return true;
+	}
+	if o3 == 0 && point_on_segment(a1, b1, b2) {
+		return true;
+	}
+	if o4 == 0 && point_on_segment(a2, b1, b2) {
+		return true;
+	}
+
+	false
+}
+
+fn segments_overlap(a1: [f64; 2], a2: [f64; 2], b1: [f64; 2], b2: [f64; 2]) -> bool {
+	orientation(a1, a2, b1) == 0
+		&& orientation(a1, a2, b2) == 0
+		&& (point_on_segment(a1, b1, b2)
+			|| point_on_segment(a2, b1, b2)
+			|| point_on_segment(b1, a1, a2)
+			|| point_on_segment(b2, a1, a2))
+}
+
+fn point_on_segment(point: [f64; 2], segment_start: [f64; 2], segment_end: [f64; 2]) -> bool {
+	if orientation(segment_start, segment_end, point) != 0 {
+		return false;
+	}
+
+	point[0] <= segment_start[0].max(segment_end[0]) + EPSILON
+		&& point[0] + EPSILON >= segment_start[0].min(segment_end[0])
+		&& point[1] <= segment_start[1].max(segment_end[1]) + EPSILON
+		&& point[1] + EPSILON >= segment_start[1].min(segment_end[1])
+}
+
+fn orientation(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> i8 {
+	let cross = (b[1] - a[1]) * (c[0] - b[0]) - (b[0] - a[0]) * (c[1] - b[1]);
+
+	if approx_eq(cross, 0.0) {
+		0
+	} else if cross > 0.0 {
+		1
+	} else {
+		2
+	}
+}
+
+fn approx_eq(left: f64, right: f64) -> bool {
+	(left - right).abs() <= EPSILON
+}
+
+fn point_eq(left: [f64; 2], right: [f64; 2]) -> bool {
+	approx_eq(left[0], right[0]) && approx_eq(left[1], right[1])
 }
 
 #[derive(Debug, Error)]
@@ -317,6 +580,27 @@ enum MoveError {
 
 	#[error("new spot cannot be placed on an endpoint")]
 	NewSpotIsEndpoint,
+
+	#[error("path does not start at the selected start spot")]
+	PathDoesNotStartAtStartSpot,
+
+	#[error("path does not end at the selected end spot")]
+	PathDoesNotEndAtEndSpot,
+
+	#[error("path contains a degenerate segment")]
+	PathHasDegenerateSegment,
+
+	#[error("new spot must lie on the submitted path")]
+	NewSpotNotOnPath,
+
+	#[error("path self-intersects")]
+	PathSelfIntersects,
+
+	#[error("path intersects an existing edge")]
+	PathIntersectsExistingEdge,
+
+	#[error("path touches an existing spot illegally")]
+	PathTouchesExistingSpot { spot_id: i32 },
 
 	#[error("spot referenced by {field} has no remaining capacity")]
 	SpotCapacityExceeded { field: &'static str, spot_id: i32 },
@@ -382,6 +666,87 @@ impl From<MoveError> for ProblemDetails {
 						"new_spot",
 						"new_spot_is_endpoint",
 						"The new spot must not be placed exactly on the start or end spot.",
+					))
+			}
+			MoveError::PathDoesNotStartAtStartSpot => {
+				ProblemDetails::new(ProblemType::Custom("path-does-not-start-at-start-spot"))
+					.with_status(StatusCode::UNPROCESSABLE_ENTITY)
+					.with_title("Path does not start at the selected start spot")
+					.with_detail("The first path point must match the selected start spot.")
+					.with_error(ProblemField::for_field(
+						"points",
+						"path_does_not_start_at_start_spot",
+						"The first path point must match the selected start spot.",
+					))
+			}
+			MoveError::PathDoesNotEndAtEndSpot => {
+				ProblemDetails::new(ProblemType::Custom("path-does-not-end-at-end-spot"))
+					.with_status(StatusCode::UNPROCESSABLE_ENTITY)
+					.with_title("Path does not end at the selected end spot")
+					.with_detail("The last path point must match the selected end spot.")
+					.with_error(ProblemField::for_field(
+						"points",
+						"path_does_not_end_at_end_spot",
+						"The last path point must match the selected end spot.",
+					))
+			}
+			MoveError::PathHasDegenerateSegment => {
+				ProblemDetails::new(ProblemType::Custom("path-has-degenerate-segment"))
+					.with_status(StatusCode::UNPROCESSABLE_ENTITY)
+					.with_title("Path contains a degenerate segment")
+					.with_detail("Adjacent path points must not be identical.")
+					.with_error(ProblemField::for_field(
+						"points",
+						"path_has_degenerate_segment",
+						"Adjacent path points must not be identical.",
+					))
+			}
+			MoveError::NewSpotNotOnPath => {
+				ProblemDetails::new(ProblemType::Custom("new-spot-not-on-path"))
+					.with_status(StatusCode::UNPROCESSABLE_ENTITY)
+					.with_title("New spot is not on the path")
+					.with_detail("The new spot must lie on one of the submitted path segments.")
+					.with_error(ProblemField::for_field(
+						"new_spot",
+						"new_spot_not_on_path",
+						"The new spot must lie on one of the submitted path segments.",
+					))
+			}
+			MoveError::PathSelfIntersects => {
+				ProblemDetails::new(ProblemType::Custom("path-self-intersects"))
+					.with_status(StatusCode::UNPROCESSABLE_ENTITY)
+					.with_title("Path self-intersects")
+					.with_detail("The submitted path must not intersect itself.")
+					.with_error(ProblemField::for_field(
+						"points",
+						"path_self_intersects",
+						"The submitted path must not intersect itself.",
+					))
+			}
+			MoveError::PathIntersectsExistingEdge => {
+				ProblemDetails::new(ProblemType::Custom("path-intersects-existing-edge"))
+					.with_status(StatusCode::UNPROCESSABLE_ENTITY)
+					.with_title("Path intersects an existing edge")
+					.with_detail("The submitted path must not intersect an existing edge.")
+					.with_error(ProblemField::for_field(
+						"points",
+						"path_intersects_existing_edge",
+						"The submitted path must not intersect an existing edge.",
+					))
+			}
+			MoveError::PathTouchesExistingSpot { spot_id } => {
+				ProblemDetails::new(ProblemType::Custom("path-touches-existing-spot"))
+					.with_status(StatusCode::UNPROCESSABLE_ENTITY)
+					.with_title("Path touches an existing spot illegally")
+					.with_detail(format!(
+						"The submitted path touches spot {spot_id} at a disallowed location."
+					))
+					.with_error(ProblemField::for_field(
+						"points",
+						"path_touches_existing_spot",
+						format!(
+							"The submitted path touches spot {spot_id} at a disallowed location."
+						),
 					))
 			}
 			MoveError::SpotCapacityExceeded { field, spot_id } => {
