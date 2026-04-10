@@ -2,21 +2,21 @@ use axum::{
 	Json,
 	extract::{Path, State},
 };
+use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
 
 use super::{GameResponse, fetch_game_for_user};
-use crate::AppState;
 use crate::api::auth::session::CurrentUser;
 use crate::api::support::error::AppError;
 use crate::api::support::problem::{ProblemDetails, ProblemField, ProblemType};
 
 pub async fn handler(
-	State(app_state): State<AppState>,
+	State(db_pool): State<PgPool>,
 	current_user: CurrentUser,
 	Path(game_id): Path<Uuid>,
 ) -> Result<Json<GameResponse>, AppError> {
-	let game = fetch_game_for_user(&app_state.db_pool, game_id, &current_user)
+	let game = fetch_game_for_user(&db_pool, game_id, &current_user)
 		.await?
 		.ok_or(GameNotFound)?;
 

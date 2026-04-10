@@ -9,18 +9,17 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use super::{GameResponse, fetch_game_for_user};
-use crate::AppState;
 use crate::api::auth::session::CurrentUser;
 use crate::api::support::error::AppError;
 use crate::api::support::problem::{ProblemDetails, ProblemField, ProblemType};
 use crate::domain::game::GameStatus;
 
 pub async fn handler(
-	State(app_state): State<AppState>,
+	State(db_pool): State<PgPool>,
 	current_user: CurrentUser,
 	Path(game_id): Path<Uuid>,
 ) -> Result<Json<GameResponse>, AppError> {
-	let game = fetch_game_summary(&app_state.db_pool, game_id)
+	let game = fetch_game_summary(&db_pool, game_id)
 		.await
 		.wrap_err("failed to fetch game summary during join")?
 		.ok_or(JoinGameError::GameNotFound)?;
@@ -50,7 +49,7 @@ pub async fn handler(
 		GameStatus::Active as GameStatus,
 		GameStatus::Waiting as GameStatus,
 	)
-	.execute(&app_state.db_pool)
+	.execute(&db_pool)
 	.await
 	.wrap_err("failed to join game")?
 	.rows_affected();
@@ -59,7 +58,7 @@ pub async fn handler(
 		return Err(JoinGameError::GameNotJoinable.into());
 	}
 
-	let game = fetch_game_for_user(&app_state.db_pool, game_id, &current_user)
+	let game = fetch_game_for_user(&db_pool, game_id, &current_user)
 		.await
 		.wrap_err("failed to fetch joined game")?
 		.ok_or_eyre("joined game could not be fetched for the joining player")?;

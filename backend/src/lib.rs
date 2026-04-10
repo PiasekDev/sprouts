@@ -1,5 +1,6 @@
 use crate::config::AppConfig;
 use axum::Router;
+use axum::extract::FromRef;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -33,7 +34,7 @@ pub mod domain {
 	pub mod username;
 }
 
-#[derive(Clone)]
+#[derive(Clone, FromRef)]
 pub struct AppState {
 	pub db_pool: PgPool,
 	pub config: Arc<AppConfig>,

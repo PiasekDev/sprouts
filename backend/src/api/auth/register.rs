@@ -6,14 +6,11 @@ use serde_fields::SerdeField;
 use sqlx::PgPool;
 use thiserror::Error;
 
+use crate::api::support::error::{AppError, RequestValidationError};
 use crate::api::support::problem::{ProblemDetails, ProblemField, ProblemType};
 use crate::domain::password_hash::PasswordHash;
 use crate::domain::plain_password::PlainPassword;
 use crate::domain::username::Username;
-use crate::{
-	AppState,
-	api::support::error::{AppError, RequestValidationError},
-};
 
 pub struct RegisterRequest {
 	pub username: Username,
@@ -21,14 +18,14 @@ pub struct RegisterRequest {
 }
 
 pub async fn handler(
-	State(app_state): State<AppState>,
+	State(db_pool): State<PgPool>,
 	WithRejection(Json(dto), _): WithRejection<Json<RegisterRequestDto>, ProblemDetails>,
 ) -> Result<StatusCode, AppError> {
 	let RegisterRequest { username, password } = RegisterRequest::try_from(dto)?;
-	let username = ensure_username_available(&app_state.db_pool, username).await?;
+	let username = ensure_username_available(&db_pool, username).await?;
 	let password_hash = PasswordHash::hash(&password)
 		.wrap_err("failed to hash user password during registration")?;
-	create_user(&app_state.db_pool, &username, &password_hash)
+	create_user(&db_pool, &username, &password_hash)
 		.await
 		.wrap_err("failed to create user during registration")?;
 

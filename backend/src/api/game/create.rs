@@ -1,15 +1,15 @@
 use axum::{Json, extract::State, http::StatusCode};
 use color_eyre::eyre::{OptionExt, WrapErr};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::{GameResponse, fetch_game_for_user};
-use crate::AppState;
 use crate::api::auth::session::CurrentUser;
 use crate::api::support::error::AppError;
 use crate::domain::game::{BoardState, GameStatus};
 
 pub async fn handler(
-	State(app_state): State<AppState>,
+	State(db_pool): State<PgPool>,
 	current_user: CurrentUser,
 ) -> Result<(StatusCode, Json<GameResponse>), AppError> {
 	let board_state = BoardState::initial();
@@ -27,11 +27,11 @@ pub async fn handler(
 		join_code,
 		board_state_jsonb,
 	)
-	.fetch_one(&app_state.db_pool)
+	.fetch_one(&db_pool)
 	.await
 	.wrap_err("failed to create game")?
 	.id;
-	let game = fetch_game_for_user(&app_state.db_pool, game_id, &current_user)
+	let game = fetch_game_for_user(&db_pool, game_id, &current_user)
 		.await
 		.wrap_err("failed to fetch created game")?
 		.ok_or_eyre("created game could not be fetched for its creator")?;

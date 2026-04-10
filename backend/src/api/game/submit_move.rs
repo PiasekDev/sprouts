@@ -7,25 +7,25 @@ use axum_extra::extract::WithRejection;
 use color_eyre::eyre::{OptionExt, WrapErr};
 use serde::Deserialize;
 use serde_fields::SerdeField;
+use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
 
 use super::{GameResponse, fetch_game_for_user};
-use crate::AppState;
 use crate::api::auth::session::CurrentUser;
 use crate::api::support::error::{AppError, RequestValidationError};
 use crate::api::support::problem::{ProblemDetails, ProblemField, ProblemType};
 use crate::domain::game::{BoardState, Edge, GameStatus, NewSpot, Spot, SubmittedMove};
 
 pub async fn handler(
-	State(app_state): State<AppState>,
+	State(db_pool): State<PgPool>,
 	current_user: CurrentUser,
 	Path(game_id): Path<Uuid>,
 	WithRejection(Json(dto), _): WithRejection<Json<MoveRequestDto>, ProblemDetails>,
 ) -> Result<Json<GameResponse>, AppError> {
 	let submitted_move = SubmittedMove::try_from(dto)?;
-	submit_move(&app_state, game_id, &current_user, submitted_move).await?;
-	let game = fetch_game_for_user(&app_state.db_pool, game_id, &current_user)
+	submit_move(&db_pool, game_id, &current_user, submitted_move).await?;
+	let game = fetch_game_for_user(&db_pool, game_id, &current_user)
 		.await
 		.wrap_err("failed to fetch game after move submission")?
 		.ok_or_eyre("updated game could not be fetched for the player who submitted a move")?;
@@ -92,12 +92,12 @@ impl TryFrom<MoveRequestDto> for SubmittedMove {
 }
 
 async fn submit_move(
-	app_state: &AppState,
+	db_pool: &PgPool,
 	game_id: Uuid,
 	current_user: &CurrentUser,
 	submitted_move: SubmittedMove,
 ) -> color_eyre::Result<()> {
-	let mut tx = app_state.db_pool.begin().await?;
+	let mut tx = db_pool.begin().await?;
 	let game = fetch_game_context(&mut tx, game_id, current_user)
 		.await?
 		.ok_or(MoveError::GameNotFound)?;
