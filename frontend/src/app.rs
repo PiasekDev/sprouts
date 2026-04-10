@@ -8,12 +8,15 @@ use leptos_router::path;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
 
-use crate::api;
-use crate::model::{DraftMove, GameResponse, LoginRequest, RegisterRequest, Spot, User};
+use crate::api::{self, ApiError};
+use crate::model::{
+	ApiProblem, DraftMove, GameResponse, LoginRequest, RegisterRequest, Spot, User,
+};
 
 #[derive(Debug, Clone)]
 struct Toast {
 	id: u64,
+	title: String,
 	message: String,
 }
 
@@ -70,13 +73,12 @@ fn LandingPage() -> impl IntoView {
 	let login_username = RwSignal::new(String::new());
 	let login_password = RwSignal::new(String::new());
 	let join_game_id = RwSignal::new(String::new());
-	let push_error = move |message: String| push_toast(toasts, next_toast_id, message);
 
 	Effect::new(move |_| {
 		spawn_local(async move {
 			match api::me().await {
 				Ok(current_user) => user.set(current_user),
-				Err(api_error) => push_error(api_error.to_string()),
+				Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
 			}
 		});
 	});
@@ -99,11 +101,11 @@ fn LandingPage() -> impl IntoView {
 				{
 					Ok(()) => match api::me().await {
 						Ok(current_user) => user.set(current_user),
-						Err(api_error) => push_error(api_error.to_string()),
+						Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
 					},
-					Err(api_error) => push_error(api_error.to_string()),
+					Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
 				},
-				Err(api_error) => push_error(api_error.to_string()),
+				Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
 			}
 		});
 	};
@@ -120,9 +122,9 @@ fn LandingPage() -> impl IntoView {
 			match api::login(&payload).await {
 				Ok(()) => match api::me().await {
 					Ok(current_user) => user.set(current_user),
-					Err(api_error) => push_error(api_error.to_string()),
+					Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
 				},
-				Err(api_error) => push_error(api_error.to_string()),
+				Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
 			}
 		});
 	};
@@ -131,7 +133,7 @@ fn LandingPage() -> impl IntoView {
 		spawn_local(async move {
 			match api::logout().await {
 				Ok(()) => user.set(None),
-				Err(api_error) => push_error(api_error.to_string()),
+				Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
 			}
 		});
 	};
@@ -173,7 +175,7 @@ fn LandingPage() -> impl IntoView {
 												spawn_local(async move {
 													match api::create_game().await {
 														Ok(game) => go_to(&format!("/game/{}", game.id())),
-														Err(api_error) => push_error(api_error.to_string()),
+														Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
 													}
 												});
 											}
@@ -191,7 +193,7 @@ fn LandingPage() -> impl IntoView {
 											spawn_local(async move {
 												match api::join_game(&game_id).await {
 													Ok(game) => go_to(&format!("/game/{}", game.id())),
-													Err(api_error) => push_error(api_error.to_string()),
+													Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
 												}
 											});
 										}
@@ -280,7 +282,6 @@ fn GamePage() -> impl IntoView {
 	let current_user = RwSignal::new(None::<User>);
 	let draft = RwSignal::new(DraftMove::empty());
 	let hover_point = RwSignal::new(None::<[f64; 2]>);
-	let push_error = move |message: String| push_toast(toasts, next_toast_id, message);
 
 	let game_id = move || params.read().get("id").unwrap_or_default();
 	Effect::new(move |_| {
@@ -299,14 +300,14 @@ fn GamePage() -> impl IntoView {
 						break;
 					}
 					Err(api_error) => {
-						push_error(api_error.to_string());
+						push_api_error(toasts, next_toast_id, api_error);
 						break;
 					}
 				}
 
 				match api::get_game(&current_game_id).await {
 					Ok(next_game) => game.set(Some(next_game)),
-					Err(api_error) => push_error(api_error.to_string()),
+					Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
 				}
 
 				TimeoutFuture::new(2_000).await;
@@ -349,7 +350,12 @@ fn GamePage() -> impl IntoView {
 			return;
 		};
 
-		draft.set(next_draft);
+		let should_submit = next_draft.can_submit();
+		draft.set(next_draft.clone());
+
+		if should_submit {
+			submit_draft_move(game_id(), next_draft, game, draft, toasts, next_toast_id);
+		}
 	};
 
 	let on_board_move = move |event: MouseEvent| {
@@ -387,20 +393,11 @@ fn GamePage() -> impl IntoView {
 	let on_reset_draft = move |_| draft.set(DraftMove::empty());
 
 	let on_submit_move = move |_| {
-		let Some(request) = draft.get().to_request() else {
+		if draft.get().to_request().is_none() {
 			return;
-		};
-		let id = game_id();
+		}
 
-		spawn_local(async move {
-			match api::submit_move(&id, &request).await {
-				Ok(updated_game) => {
-					game.set(Some(updated_game));
-					draft.set(DraftMove::empty());
-				}
-				Err(api_error) => push_error(api_error.to_string()),
-			}
-		});
+		submit_draft_move(game_id(), draft.get(), game, draft, toasts, next_toast_id);
 	};
 
 	view! {
@@ -445,27 +442,27 @@ fn GamePage() -> impl IntoView {
 
 						view! {
 							<div class="panel-body panel-body--game">
-								<section class="section-block section-block--board">
-									<div class="info-grid">
-										<div class="info-cell">
+								<section class="game-stage">
+									<div class="game-strip">
+										<div class="game-fact">
 											<span>"Game id"</span>
 											<strong>{current_game.id().to_string()}</strong>
 										</div>
-										<div class="info-cell">
+										<div class="game-fact">
 											<span>"Join code"</span>
 											<strong>{current_game.join_code().to_string()}</strong>
 										</div>
-										<div class="info-cell">
+										<div class="game-fact">
 											<span>"Players"</span>
 											<strong>{players}</strong>
 										</div>
-										<div class="info-cell">
+										<div class="game-fact">
 											<span>"Turn"</span>
 											<strong>{current_turn}</strong>
 										</div>
 										{outcome.map(|winner| {
 											view! {
-												<div class="info-cell">
+												<div class="game-fact">
 													<span>"Winner"</span>
 													<strong>{winner}</strong>
 												</div>
@@ -579,8 +576,8 @@ fn GamePage() -> impl IntoView {
 									</svg>
 								</section>
 
-								<section class="section-block section-block--sidebar">
-									<div class="section-block__header">
+								<aside class="game-sidebar">
+									<div class="game-sidebar__header">
 										<div>
 											<h2>"Draft move"</h2>
 											<p>"Build the polyline in four steps and submit once."</p>
@@ -615,7 +612,7 @@ fn GamePage() -> impl IntoView {
 											"Submit move"
 										</button>
 									</div>
-								</section>
+								</aside>
 							</div>
 						}
 					}}
@@ -659,7 +656,7 @@ fn ErrorToasts(toasts: RwSignal<Vec<Toast>>) -> impl IntoView {
 						view! {
 							<aside class="error-toast" role="alert">
 								<div class="error-toast__content">
-									<strong>"Request failed"</strong>
+									<strong>{toast.title}</strong>
 									<p>{toast.message}</p>
 								</div>
 								<button
@@ -826,12 +823,18 @@ fn go_to(path: &str) {
 	}
 }
 
-fn push_toast(toasts: RwSignal<Vec<Toast>>, next_toast_id: RwSignal<u64>, message: String) {
+fn push_toast(
+	toasts: RwSignal<Vec<Toast>>,
+	next_toast_id: RwSignal<u64>,
+	title: String,
+	message: String,
+) {
 	let toast_id = next_toast_id.get_untracked();
 	next_toast_id.set(toast_id + 1);
 	toasts.update(|items| {
 		items.push(Toast {
 			id: toast_id,
+			title,
 			message,
 		})
 	});
@@ -844,6 +847,156 @@ fn push_toast(toasts: RwSignal<Vec<Toast>>, next_toast_id: RwSignal<u64>, messag
 
 fn dismiss_toast(toasts: RwSignal<Vec<Toast>>, toast_id: u64) {
 	toasts.update(|items| items.retain(|toast| toast.id != toast_id));
+}
+
+fn push_api_error(toasts: RwSignal<Vec<Toast>>, next_toast_id: RwSignal<u64>, api_error: ApiError) {
+	let (title, message) = toast_content_for_api_error(&api_error);
+	push_toast(toasts, next_toast_id, title, message);
+}
+
+fn toast_content_for_api_error(api_error: &ApiError) -> (String, String) {
+	match api_error {
+		ApiError::Problem(problem) => problem_toast(problem),
+		ApiError::Network(error) => ("Connection failed".to_string(), error.to_string()),
+		ApiError::Unexpected(error) => (
+			"Unexpected response".to_string(),
+			format!(
+				"The backend returned status {} in an unexpected format.",
+				error.status
+			),
+		),
+	}
+}
+
+fn problem_toast(problem: &ApiProblem) -> (String, String) {
+	let title = problem
+		.details
+		.as_ref()
+		.and_then(|details| details.title.clone())
+		.unwrap_or_else(|| "Request failed".to_string());
+	let message = problem
+		.details
+		.as_ref()
+		.and_then(|details| {
+			details
+				.detail
+				.clone()
+				.or_else(|| details.errors.first().map(|field| field.detail.clone()))
+		})
+		.unwrap_or_else(|| problem.message.clone());
+
+	(title, message)
+}
+
+fn submit_draft_move(
+	game_id: String,
+	submitted_draft: DraftMove,
+	game: RwSignal<Option<GameResponse>>,
+	draft: RwSignal<DraftMove>,
+	toasts: RwSignal<Vec<Toast>>,
+	next_toast_id: RwSignal<u64>,
+) {
+	let Some(request) = submitted_draft.to_request() else {
+		return;
+	};
+
+	spawn_local(async move {
+		match api::submit_move(&game_id, &request).await {
+			Ok(updated_game) => {
+				game.set(Some(updated_game));
+				draft.set(DraftMove::empty());
+			}
+			Err(api_error) => {
+				handle_move_submission_error(
+					&api_error,
+					&game_id,
+					submitted_draft,
+					game,
+					draft,
+					toasts,
+					next_toast_id,
+				);
+				push_api_error(toasts, next_toast_id, api_error);
+			}
+		}
+	});
+}
+
+fn handle_move_submission_error(
+	api_error: &ApiError,
+	game_id: &str,
+	submitted_draft: DraftMove,
+	game: RwSignal<Option<GameResponse>>,
+	draft: RwSignal<DraftMove>,
+	toasts: RwSignal<Vec<Toast>>,
+	next_toast_id: RwSignal<u64>,
+) {
+	let Some(problem) = (match api_error {
+		ApiError::Problem(problem) => Some(problem),
+		_ => None,
+	}) else {
+		return;
+	};
+
+	match primary_problem_code(problem) {
+		Some("new_spot_not_on_path") | Some("new_spot_is_endpoint") => {
+			let mut next_draft = submitted_draft;
+			next_draft.new_spot = None;
+			draft.set(next_draft);
+		}
+		Some(
+			"path_self_intersects"
+			| "path_intersects_existing_edge"
+			| "path_touches_existing_spot"
+			| "path_has_degenerate_segment"
+			| "path_does_not_end_at_end_spot"
+			| "spot_capacity_exceeded",
+		) => {
+			draft.set(reset_draft_to_start(submitted_draft));
+		}
+		Some("not_players_turn") | Some("game_not_active") | Some("game_not_found") => {
+			draft.set(DraftMove::empty());
+			refresh_game(game_id.to_owned(), game, toasts, next_toast_id);
+		}
+		_ => {
+			draft.set(DraftMove::empty());
+		}
+	}
+}
+
+fn primary_problem_code(problem: &ApiProblem) -> Option<&str> {
+	problem
+		.details
+		.as_ref()
+		.and_then(|details| details.errors.first())
+		.map(|field| field.code.as_str())
+}
+
+fn reset_draft_to_start(draft: DraftMove) -> DraftMove {
+	let Some(start_spot) = draft.start_spot else {
+		return DraftMove::empty();
+	};
+
+	DraftMove {
+		start_spot: Some(start_spot.clone()),
+		points: vec![[start_spot.x, start_spot.y]],
+		end_spot: None,
+		new_spot: None,
+	}
+}
+
+fn refresh_game(
+	game_id: String,
+	game: RwSignal<Option<GameResponse>>,
+	toasts: RwSignal<Vec<Toast>>,
+	next_toast_id: RwSignal<u64>,
+) {
+	spawn_local(async move {
+		match api::get_game(&game_id).await {
+			Ok(updated_game) => game.set(Some(updated_game)),
+			Err(api_error) => push_api_error(toasts, next_toast_id, api_error),
+		}
+	});
 }
 
 fn point_distance(left: [f64; 2], right: [f64; 2]) -> f64 {
