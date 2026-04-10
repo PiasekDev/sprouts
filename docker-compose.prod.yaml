@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  # Production uses published images instead of local build contexts.
+  backend:
+    image: piasekdev/sprouts-backend:latest
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+
+  # Production frontend uses the published nginx-based image.
+  frontend:
+    image: piasekdev/sprouts-frontend:latest
+    restart: unless-stopped
+
+  # The database should not expose its port publicly in the production overlay.
+  database:
+    ports: []

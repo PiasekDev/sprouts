@@ -1,47 +1,93 @@
+version: "3.9"
+
 services:
+  # PostgreSQL stores users, sessions, games and moves.
   database:
     image: postgres:18.3-trixie
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
-      POSTGRES_DB: sprouts
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "${DATABASE_PORT}:5432"
     volumes:
       - database-data:/var/lib/postgresql
+    networks:
+      - backend
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d sprouts"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "${DATABASE_CPU_LIMIT}"
+          memory: ${DATABASE_MEMORY_LIMIT}
 
+  # Rust backend exposing the authenticated game API.
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
+    env_file:
+      - .env
     depends_on:
       database:
         condition: service_healthy
     environment:
-      APP_ENV: production
-      BIND_ADDRESS: 0.0.0.0:3000
-      DATABASE_URL: postgres://admin:admin@database:5432/sprouts
-      RUST_LOG: info
+      APP_ENV: ${APP_ENV}
+      BIND_ADDRESS: 0.0.0.0:${BACKEND_CONTAINER_PORT}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      RUST_LOG: ${RUST_LOG}
     ports:
-      - "3000:3000"
+      - "${BACKEND_PORT}:${BACKEND_CONTAINER_PORT}"
+    networks:
+      - frontend
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "${BACKEND_CPU_LIMIT}"
+          memory: ${BACKEND_MEMORY_LIMIT}
 
+  # Nginx serves the Leptos SPA and proxies /api requests to the backend.
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_started
     ports:
-      - "8080:80"
+      - "${FRONTEND_PORT}:80"
+    networks:
+      - frontend
+    deploy:
+      resources:
+        limits:
+          cpus: "${FRONTEND_CPU_LIMIT}"
+          memory: ${FRONTEND_MEMORY_LIMIT}
+
+  # Optional troubleshooting shell available only when the debug profile is enabled.
+  debug-shell:
+    image: busybox:1.36
+    command: ["sh", "-c", "sleep infinity"]
+    profiles:
+      - debug
+    networks:
+      - frontend
+      - backend
+
+networks:
+  frontend:
+  backend:
 
 volumes:
   database-data:
