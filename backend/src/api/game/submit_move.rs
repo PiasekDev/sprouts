@@ -292,6 +292,7 @@ fn apply_move(
 		board_state.spots[end_spot_index].degree += 1;
 	}
 
+	let edge_points = path_with_new_spot(points, new_spot_point)?;
 	let new_spot_id = board_state.next_spot_id();
 	let edge_id = board_state.next_edge_id();
 	board_state.spots.push(Spot {
@@ -304,7 +305,7 @@ fn apply_move(
 		id: edge_id,
 		start_spot_id: submitted_move.start_spot_id,
 		end_spot_id: submitted_move.end_spot_id,
-		points: submitted_move.points.clone(),
+		points: edge_points,
 		new_spot_id,
 	});
 
@@ -435,6 +436,33 @@ fn point_on_polyline(point: [f64; 2], points: &[[f64; 2]]) -> bool {
 	points
 		.windows(2)
 		.any(|segment| point_on_segment(point, segment[0], segment[1]))
+}
+
+fn path_with_new_spot(
+	points: &[[f64; 2]],
+	new_spot_point: [f64; 2],
+) -> Result<Vec<[f64; 2]>, MoveError> {
+	if points.iter().any(|point| point_eq(*point, new_spot_point)) {
+		return Ok(points.to_vec());
+	}
+
+	let mut edge_points = Vec::with_capacity(points.len() + 1);
+
+	for (index, point) in points.iter().copied().enumerate() {
+		edge_points.push(point);
+
+		let Some(next_point) = points.get(index + 1).copied() else {
+			continue;
+		};
+
+		if point_on_segment(new_spot_point, point, next_point) {
+			edge_points.push(new_spot_point);
+			edge_points.extend_from_slice(&points[(index + 1)..]);
+			return Ok(edge_points);
+		}
+	}
+
+	Err(MoveError::NewSpotNotOnPath)
 }
 
 fn shared_endpoint_is_allowed(
@@ -756,5 +784,66 @@ impl From<MoveError> for ProblemDetails {
 					))
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{apply_move, point_eq};
+	use crate::domain::game::{BoardState, SubmittedMove};
+
+	#[test]
+	fn apply_move_inserts_new_spot_into_edge_points() {
+		let mut board_state = BoardState::initial();
+
+		apply_move(
+			&mut board_state,
+			&SubmittedMove {
+				start_spot_id: 1,
+				end_spot_id: 2,
+				points: vec![[100.0, 100.0], [300.0, 100.0]],
+				new_spot: shared::game::NewSpot { x: 200.0, y: 100.0 },
+			},
+		)
+		.expect("initial move should succeed");
+
+		assert_eq!(
+			board_state.edges[0].points,
+			vec![[100.0, 100.0], [200.0, 100.0], [300.0, 100.0]]
+		);
+	}
+
+	#[test]
+	fn apply_move_allows_follow_up_move_from_inserted_spot() {
+		let mut board_state = BoardState::initial();
+
+		apply_move(
+			&mut board_state,
+			&SubmittedMove {
+				start_spot_id: 1,
+				end_spot_id: 2,
+				points: vec![[100.0, 100.0], [300.0, 100.0]],
+				new_spot: shared::game::NewSpot { x: 200.0, y: 100.0 },
+			},
+		)
+		.expect("initial move should succeed");
+
+		apply_move(
+			&mut board_state,
+			&SubmittedMove {
+				start_spot_id: 3,
+				end_spot_id: 2,
+				points: vec![[200.0, 100.0], [240.0, 150.0], [300.0, 100.0]],
+				new_spot: shared::game::NewSpot { x: 270.0, y: 125.0 },
+			},
+		)
+		.expect("move from newly inserted spot should succeed");
+
+		assert!(
+			board_state.edges[1]
+				.points
+				.iter()
+				.any(|point| point_eq(*point, [270.0, 125.0]))
+		);
 	}
 }
