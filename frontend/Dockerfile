@@ -15,7 +15,7 @@ WORKDIR /workspace/frontend
 
 RUN trunk build --release
 
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.29.6-alpine3.23 AS runtime
 
 COPY frontend/server.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /workspace/frontend/dist /usr/share/nginx/html
