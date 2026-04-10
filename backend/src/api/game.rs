@@ -14,12 +14,14 @@ use crate::domain::game::{BoardState, GameStatus};
 pub mod create;
 pub mod get;
 pub mod join;
+pub mod submit_move;
 
 pub fn router() -> Router<AppState> {
 	Router::new()
 		.route("/", post(create::handler))
 		.route("/{id}", get(get::handler))
 		.route("/{id}/join", post(join::handler))
+		.route("/{id}/move", post(submit_move::handler))
 }
 
 #[derive(Debug, Serialize)]

@@ -33,6 +33,20 @@ pub struct Edge {
 	pub new_spot_id: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmittedMove {
+	pub start_spot_id: i32,
+	pub end_spot_id: i32,
+	pub points: Vec<[f64; 2]>,
+	pub new_spot: NewSpot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewSpot {
+	pub x: f64,
+	pub y: f64,
+}
+
 impl BoardState {
 	pub fn initial() -> Self {
 		Self {
@@ -52,5 +66,17 @@ impl BoardState {
 			],
 			edges: Vec::new(),
 		}
+	}
+
+	pub fn find_spot(&self, spot_id: i32) -> Option<&Spot> {
+		self.spots.iter().find(|spot| spot.id == spot_id)
+	}
+
+	pub fn next_spot_id(&self) -> i32 {
+		self.spots.iter().map(|spot| spot.id).max().unwrap_or(0) + 1
+	}
+
+	pub fn next_edge_id(&self) -> i32 {
+		self.edges.iter().map(|edge| edge.id).max().unwrap_or(0) + 1
 	}
 }
