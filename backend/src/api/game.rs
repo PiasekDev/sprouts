@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::api::auth::session::CurrentUser;
-use crate::api::support::invariant::InvariantExt;
+use crate::api::support::invariant::{InvariantExt, InvariantViolationError};
 use crate::domain::game::GameStatus;
 
 pub mod create;
@@ -71,11 +71,11 @@ async fn fetch_game_for_user(
 	.await
 	.wrap_err("failed to fetch game for authenticated user")?;
 
-	game.map(GameResponse::try_from).transpose()
+	Ok(game.map(GameResponse::try_from).transpose()?)
 }
 
 impl TryFrom<GameRow> for GameResponse {
-	type Error = color_eyre::Report;
+	type Error = InvariantViolationError;
 
 	fn try_from(game: GameRow) -> Result<Self, Self::Error> {
 		let GameRow {

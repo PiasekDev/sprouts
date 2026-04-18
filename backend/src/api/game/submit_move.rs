@@ -4,7 +4,7 @@ use axum::{
 	http::StatusCode,
 };
 use axum_extra::extract::WithRejection;
-use color_eyre::eyre::WrapErr;
+use color_eyre::eyre::{OptionExt, WrapErr};
 use shared::game::{MoveRequest, MoveRequestSerdeField};
 use sqlx::PgPool;
 use thiserror::Error;
@@ -28,7 +28,7 @@ pub async fn handler(
 	let game = fetch_game_for_user(&db_pool, game_id, &current_user)
 		.await
 		.wrap_err("failed to fetch game after move submission")?
-		.invariant("updated game could not be fetched for the player who submitted a move")?;
+		.ok_or_eyre("updated game could not be fetched for the player who submitted a move")?;
 
 	Ok(Json(game))
 }

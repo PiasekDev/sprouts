@@ -1,3 +1,4 @@
+use super::invariant::InvariantViolationError;
 use super::problem::{ProblemDetails, ProblemField, ProblemType};
 use super::validation::ProblemSpec;
 use axum::{
@@ -18,6 +19,12 @@ pub enum AppError {
 impl From<ProblemDetails> for AppError {
 	fn from(problem: ProblemDetails) -> Self {
 		Self::Api(problem)
+	}
+}
+
+impl From<InvariantViolationError> for AppError {
+	fn from(error: InvariantViolationError) -> Self {
+		Self::Internal(error.into())
 	}
 }
 
