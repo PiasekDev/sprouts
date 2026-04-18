@@ -15,6 +15,7 @@ pub mod api {
 
 	pub mod support {
 		pub mod error;
+		pub mod invariant;
 		pub mod problem;
 		pub mod validation;
 	}

@@ -4,7 +4,6 @@ use thiserror::Error;
 use crate::api::support::validation::ProblemSpec;
 
 #[nutype(
-	new_unchecked,
 	sanitize(trim, lowercase),
 	validate(with = validate_username, error = UsernameError),
 	derive(Debug, Clone, PartialEq, Eq, AsRef, Display),

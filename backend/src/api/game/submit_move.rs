@@ -4,7 +4,7 @@ use axum::{
 	http::StatusCode,
 };
 use axum_extra::extract::WithRejection;
-use color_eyre::eyre::{OptionExt, WrapErr};
+use color_eyre::eyre::WrapErr;
 use shared::game::{MoveRequest, MoveRequestSerdeField};
 use sqlx::PgPool;
 use thiserror::Error;
@@ -13,6 +13,7 @@ use uuid::Uuid;
 use super::{GameResponse, fetch_game_for_user};
 use crate::api::auth::session::CurrentUser;
 use crate::api::support::error::{AppError, RequestValidationError};
+use crate::api::support::invariant::InvariantExt;
 use crate::api::support::problem::{ProblemDetails, ProblemField, ProblemType};
 use crate::domain::game::{BoardState, Edge, GameStatus, NewSpot, Spot, SubmittedMove};
 
@@ -27,7 +28,7 @@ pub async fn handler(
 	let game = fetch_game_for_user(&db_pool, game_id, &current_user)
 		.await
 		.wrap_err("failed to fetch game after move submission")?
-		.ok_or_eyre("updated game could not be fetched for the player who submitted a move")?;
+		.invariant("updated game could not be fetched for the player who submitted a move")?;
 
 	Ok(Json(game))
 }
@@ -102,10 +103,10 @@ async fn submit_move(
 
 	let player2_user_id = game
 		.player2_user_id
-		.ok_or_eyre("active game did not contain a second player")?;
+		.invariant("active game did not contain a second player")?;
 	let current_turn_user_id = game
 		.current_turn_user_id
-		.ok_or_eyre("active game did not contain current turn user id")?;
+		.invariant("active game did not contain current turn user id")?;
 
 	if current_turn_user_id != current_user.id {
 		return Err(MoveError::NotPlayersTurn.into());
@@ -221,7 +222,7 @@ async fn fetch_game_context(
 fn apply_move(
 	board_state: &mut BoardState,
 	submitted_move: &SubmittedMove,
-) -> Result<(), MoveError> {
+) -> Result<(), AppError> {
 	let start_spot_index = board_state
 		.spots
 		.iter()
@@ -244,26 +245,37 @@ fn apply_move(
 	let end_point = [end_spot.x, end_spot.y];
 	let new_spot_point = [submitted_move.new_spot.x, submitted_move.new_spot.y];
 	let points = &submitted_move.points;
+	points
+		.get(1)
+		.invariant("submitted move path unexpectedly contained fewer than two points")?;
+	let start_path_point = points
+		.first()
+		.copied()
+		.invariant("submitted move path unexpectedly had no first point")?;
+	let end_path_point = points
+		.last()
+		.copied()
+		.invariant("submitted move path unexpectedly had no last point")?;
 
-	if !point_eq(points[0], start_point) {
-		return Err(MoveError::PathDoesNotStartAtStartSpot);
+	if !point_eq(start_path_point, start_point) {
+		return Err(MoveError::PathDoesNotStartAtStartSpot.into());
 	}
 
-	if !point_eq(*points.last().expect("validated non-empty path"), end_point) {
-		return Err(MoveError::PathDoesNotEndAtEndSpot);
+	if !point_eq(end_path_point, end_point) {
+		return Err(MoveError::PathDoesNotEndAtEndSpot.into());
 	}
 
 	if is_same_point(&submitted_move.new_spot, &start_spot)
 		|| is_same_point(&submitted_move.new_spot, &end_spot)
 	{
-		return Err(MoveError::NewSpotIsEndpoint);
+		return Err(MoveError::NewSpotIsEndpoint.into());
 	}
 
 	validate_path_segments(points)?;
 	validate_spot_touches(board_state, submitted_move, start_point, end_point)?;
 
 	if !point_on_polyline(new_spot_point, points) {
-		return Err(MoveError::NewSpotNotOnPath);
+		return Err(MoveError::NewSpotNotOnPath.into());
 	}
 
 	validate_self_intersections(points)?;
@@ -274,21 +286,24 @@ fn apply_move(
 			return Err(MoveError::SpotCapacityExceeded {
 				field: "start_spot_id",
 				spot_id: start_spot.id,
-			});
+			}
+			.into());
 		}
 	} else {
 		if start_spot.degree > 2 {
 			return Err(MoveError::SpotCapacityExceeded {
 				field: "start_spot_id",
 				spot_id: start_spot.id,
-			});
+			}
+			.into());
 		}
 
 		if end_spot.degree > 2 {
 			return Err(MoveError::SpotCapacityExceeded {
 				field: "end_spot_id",
 				spot_id: end_spot.id,
-			});
+			}
+			.into());
 		}
 	}
 

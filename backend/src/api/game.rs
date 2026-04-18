@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::api::auth::session::CurrentUser;
+use crate::api::support::invariant::InvariantExt;
 use crate::domain::game::GameStatus;
 
 pub mod create;
@@ -70,11 +71,13 @@ async fn fetch_game_for_user(
 	.await
 	.wrap_err("failed to fetch game for authenticated user")?;
 
-	Ok(game.map(GameResponse::from))
+	game.map(GameResponse::try_from).transpose()
 }
 
-impl From<GameRow> for GameResponse {
-	fn from(game: GameRow) -> Self {
+impl TryFrom<GameRow> for GameResponse {
+	type Error = color_eyre::Report;
+
+	fn try_from(game: GameRow) -> Result<Self, Self::Error> {
 		let GameRow {
 			id,
 			status,
@@ -93,7 +96,7 @@ impl From<GameRow> for GameResponse {
 		};
 		let board_state = board_state_jsonb.0;
 
-		match status {
+		Ok(match status {
 			GameStatus::Waiting => Self::Waiting {
 				id,
 				join_code,
@@ -105,15 +108,13 @@ impl From<GameRow> for GameResponse {
 				join_code,
 				player1,
 				player2: GamePlayer {
-					id: player2_user_id.expect(
-						"invariant violated: active game did not contain a second player id",
-					),
-					username: player2_username.expect(
-						"invariant violated: active game did not contain a second player username",
-					),
+					id: player2_user_id
+						.invariant("active game did not contain a second player id")?,
+					username: player2_username
+						.invariant("active game did not contain a second player username")?,
 				},
 				current_turn_user_id: current_turn_user_id
-					.expect("invariant violated: active game did not contain current turn user id"),
+					.invariant("active game did not contain current turn user id")?,
 				board_state,
 			},
 			GameStatus::Finished => Self::Finished {
@@ -121,17 +122,15 @@ impl From<GameRow> for GameResponse {
 				join_code,
 				player1,
 				player2: GamePlayer {
-					id: player2_user_id.expect(
-						"invariant violated: finished game did not contain a second player id",
-					),
-					username: player2_username.expect(
-						"invariant violated: finished game did not contain a second player username",
-					),
+					id: player2_user_id
+						.invariant("finished game did not contain a second player id")?,
+					username: player2_username
+						.invariant("finished game did not contain a second player username")?,
 				},
 				winner_user_id: winner_user_id
-					.expect("invariant violated: finished game did not contain winner user id"),
+					.invariant("finished game did not contain winner user id")?,
 				board_state,
 			},
-		}
+		})
 	}
 }

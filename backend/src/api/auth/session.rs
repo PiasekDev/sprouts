@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::api::support::error::AppError;
+use crate::api::support::invariant::InvariantExt;
 use crate::api::support::problem::{ProblemDetails, ProblemField, ProblemType};
 use crate::config::AuthCookieConfig;
 use crate::domain::session::{SessionToken, SessionTokenHash};
@@ -89,8 +90,8 @@ impl FromRequestParts<AppState> for CurrentUser {
 		.wrap_err("failed to resolve authenticated user from session")?
 		.ok_or(AuthenticationRequired)?;
 
-		// SAFETY: The username in the database is guaranteed to be valid as it is validated during user registration.
-		let username = unsafe { Username::new_unchecked(user.username) };
+		let username = Username::try_new(user.username)
+			.invariant("usernames stored in the database should be valid")?;
 
 		Ok(Self {
 			id: user.id,
