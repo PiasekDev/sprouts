@@ -12,7 +12,7 @@ pub enum AppError {
 	Api(ProblemDetails),
 
 	#[error(transparent)]
-	Unexpected(#[from] color_eyre::Report),
+	Internal(#[from] color_eyre::Report),
 }
 
 impl From<ProblemDetails> for AppError {
@@ -25,7 +25,7 @@ impl IntoResponse for AppError {
 	fn into_response(self) -> Response {
 		match self {
 			Self::Api(problem) => problem.into_response(),
-			Self::Unexpected(error) => {
+			Self::Internal(error) => {
 				tracing::error!(?error, "request failed unexpectedly");
 
 				ProblemDetails::new(ProblemType::InternalServerError)
