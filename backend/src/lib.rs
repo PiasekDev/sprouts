@@ -12,6 +12,7 @@ pub mod api {
 
 	pub mod auth;
 	pub mod game;
+	pub mod health;
 
 	pub mod support {
 		pub mod error;
@@ -24,6 +25,7 @@ pub mod api {
 		Router::new()
 			.nest("/auth", auth::router())
 			.nest("/game", game::router())
+			.merge(health::router())
 	}
 }
 
