@@ -1,8 +1,19 @@
+# syntax=docker/dockerfile:1
+
 FROM rust:1.94-trixie AS builder
 
 WORKDIR /workspace
+ENV RUSTC_WRAPPER=sccache
+ENV SCCACHE_DIR=/sccache
 
-RUN cargo install --locked trunk \
+RUN apt-get update \
+	&& apt-get install --yes --no-install-recommends sccache \
+	&& rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+	--mount=type=cache,target=/usr/local/cargo/git/db,sharing=locked \
+	--mount=type=cache,target=/sccache,sharing=locked \
+	cargo install --locked trunk \
 	&& rustup target add wasm32-unknown-unknown
 
 COPY Cargo.toml Cargo.lock build.rs ./
@@ -13,7 +24,10 @@ COPY . .
 
 WORKDIR /workspace/frontend
 
-RUN trunk build --release
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+	--mount=type=cache,target=/usr/local/cargo/git/db,sharing=locked \
+	--mount=type=cache,target=/sccache,sharing=locked \
+	trunk build --release
 
 FROM nginx:1.29.6-alpine3.23 AS runtime
 
