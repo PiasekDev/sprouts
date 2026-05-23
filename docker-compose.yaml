@@ -29,17 +29,41 @@ services:
           cpus: "${DATABASE_CPU_LIMIT}"
           memory: ${DATABASE_MEMORY_LIMIT}
 
-  # Rust backend exposing the authenticated game API.
-  backend:
+  # One-shot migration task using the backend image before API replicas start.
+  backend-migrate:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    restart: unless-stopped
+    command: ["backend", "migrate"]
+    restart: "no"
     env_file:
       - .env
     depends_on:
       database:
         condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      RUST_LOG: ${RUST_LOG}
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "${BACKEND_CPU_LIMIT}"
+          memory: ${BACKEND_MEMORY_LIMIT}
+
+  # Rust backend exposing the authenticated game API.
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["backend", "serve"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      backend-migrate:
+        condition: service_completed_successfully
     environment:
       APP_ENV: ${APP_ENV}
       BIND_ADDRESS: 0.0.0.0:${BACKEND_CONTAINER_PORT}

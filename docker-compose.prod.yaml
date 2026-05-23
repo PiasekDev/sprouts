@@ -1,6 +1,11 @@
 version: "3.9"
 
 services:
+  # Production migration task uses the same published backend image.
+  backend-migrate:
+    image: piasekdev/sprouts-backend:latest
+    restart: "no"
+
   # Production uses published images instead of local build contexts.
   backend:
     image: piasekdev/sprouts-backend:latest

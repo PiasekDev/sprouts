@@ -2,9 +2,10 @@
 
 W projekcie przygotowano plik `docker-compose.yaml` jako testową/deweloperską konfigurację środowiska oraz dodatkowy plik `docker-compose.prod.yaml` jako wariant produkcyjny oparty o obrazy opublikowane na DockerHub.
 
-Podstawowy plik uruchamia trzy usługi:
+Podstawowy plik uruchamia cztery usługi:
 
 - `database`
+- `backend-migrate`
 - `backend`
 - `frontend`
 
@@ -24,15 +25,28 @@ Podstawowy plik uruchamia trzy usługi:
 - sieć: `backend`
 - limit zasobów CPU/RAM zdefiniowany w Compose
 
+### backend-migrate
+
+- build z `backend/Dockerfile`
+- jednorazowe polecenie: `backend migrate`
+- zależność od gotowości bazy danych przez `depends_on` i `condition: service_healthy`
+- zmienne środowiskowe:
+  - `DATABASE_URL=postgres://admin:admin@database:5432/sprouts`
+  - `RUST_LOG=info`
+- sieć: `backend`
+- zadanie kończy działanie po poprawnym wykonaniu migracji SQLx
+
 ### backend
 
 - build z `backend/Dockerfile`
+- polecenie: `backend serve`
 - konfiguracja ładowana z pliku `.env`
 - port hosta: `3000`
-- zależność od gotowości bazy danych przez `depends_on` i `condition: service_healthy`
+- zależność od poprawnego zakończenia migracji przez `depends_on` i `condition: service_completed_successfully`
 - zmienne środowiskowe:
   - `APP_ENV=development`
   - `BIND_ADDRESS=0.0.0.0:3000`
+  - `DATABASE_MAX_CONNECTIONS=10`
   - `DATABASE_URL=postgres://admin:admin@database:5432/sprouts`
   - `RUST_LOG=info`
 - sieci: `frontend`, `backend`
@@ -75,6 +89,7 @@ docker compose -f docker-compose.yaml -f docker-compose.prod.yaml up -d
 
 Plik `docker-compose.prod.yaml` nie jest samodzielną pełną definicją środowiska.
 Pełni rolę pliku nadpisującego, który działa razem z `docker-compose.yaml` i podmienia tylko elementy specyficzne dla wariantu produkcyjnego, takie jak użycie opublikowanych obrazów zamiast lokalnego `build` oraz brak publicznego portu dla bazy danych.
+Dotyczy to również usługi `backend-migrate`, która w wariancie produkcyjnym korzysta z tego samego opublikowanego obrazu backendu.
 
 ## Zastosowane dobre praktyki
 
@@ -86,7 +101,7 @@ Zastosowane dobre praktyki obejmują:
 - wykorzystanie pliku `.env` do konfiguracji środowiska,
 - jawnie zdefiniowane sieci `frontend` i `backend`,
 - zastosowanie `healthcheck` dla bazy danych,
-- użycie `depends_on` dla kolejności uruchamiania,
+- użycie `depends_on` dla kolejności uruchamiania oraz osobnej jednorazowej usługi migracyjnej,
 - jawne mapowanie portów w środowisku deweloperskim,
 - limity CPU/RAM dla usług,
 - profil `debug` dla usługi pomocniczej,
