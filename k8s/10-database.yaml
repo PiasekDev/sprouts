@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: database
+  namespace: sprouts
+  labels:
+    app.kubernetes.io/name: sprouts
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  selector:
+    app.kubernetes.io/name: sprouts
+    app.kubernetes.io/component: database
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: database
+  namespace: sprouts
+  labels:
+    app.kubernetes.io/name: sprouts
+    app.kubernetes.io/component: database
+spec:
+  serviceName: database
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sprouts
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sprouts
+        app.kubernetes.io/component: database
+    spec:
+      serviceAccountName: sprouts-runtime
+      containers:
+        - name: database
+          image: postgres:18.3-trixie
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: sprouts-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: sprouts-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sprouts-secret
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: database-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: database-data
+        labels:
+          app.kubernetes.io/name: sprouts
+          app.kubernetes.io/component: database
+      spec:
+        storageClassName: standard
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi

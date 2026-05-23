@@ -12,10 +12,11 @@ Najważniejsze katalogi repozytorium:
 - `frontend/` - kod frontendu i `frontend/Dockerfile`
 - `shared/` - współdzielone typy request/response oraz model stanu planszy
 - `migrations/` - migracje bazy danych
+- `k8s/` - manifesty Kubernetes i skrypt wdrozenia dla Minikube
 - `.sqlx/` - metadane SQLx do buildów offline
-- `docs/` - dokumentacja do zadania cząstkowego nr 1
+- `docs/` - dokumentacja konteneryzacji i wdrozenia Kubernetes
 
-Repozytorium zawiera również dokumentację przygotowaną pod zadanie cząstkowe nr 1 z przedmiotu `Bezpieczeństwo procesów CI/CD`.
+Repozytorium zawiera również dokumentację przygotowaną pod zadania projektowe z przedmiotu `Bezpieczeństwo procesów CI/CD`.
 
 ## Autor
 
@@ -82,6 +83,55 @@ Usunięcie środowiska wraz z wolumenem bazy danych:
 docker compose down -v
 ```
 
+## Wdrożenie Kubernetes
+
+Konfiguracja Kubernetes znajduje się w katalogu `k8s/`. Wdrożenie jest przygotowane dla Minikube i obejmuje:
+
+- namespace `sprouts`,
+- `ConfigMap` i `Secret`,
+- PostgreSQL jako `StatefulSet` z PVC,
+- migracje bazy jako `Job`,
+- backend i frontend jako `Deployment`,
+- usługi `ClusterIP`,
+- `Ingress` dla hosta `sprouts.local`,
+- `NetworkPolicy`, ograniczenia zasobów i reguły affinity.
+
+Wymagane dodatki Minikube:
+
+```bash
+minikube start --network-plugin=cni --cni=calico --container-runtime=docker
+minikube addons enable ingress
+```
+
+Wdrożenie:
+
+```bash
+./k8s/deploy-minikube.sh
+```
+
+Po wdrożeniu należy dodać lokalny wpis DNS:
+
+```bash
+echo "$(minikube ip) sprouts.local" | sudo tee -a /etc/hosts
+```
+
+Jest to potrzebne do wygodnego dostępu przez przeglądarkę, ponieważ Ingress używa reguły dla hosta `sprouts.local`. Bez wpisu w `/etc/hosts` można nadal sprawdzić routing ręcznie, ustawiając nagłówek `Host`:
+
+```bash
+curl -H "Host: sprouts.local" "http://$(minikube ip)/"
+```
+
+Podstawowa weryfikacja:
+
+```bash
+kubectl get all -n sprouts
+kubectl get ingress,pvc,networkpolicy -n sprouts
+curl -i http://sprouts.local/api/healthz
+curl -i http://sprouts.local/api/readyz
+```
+
+Szczegółowy opis obiektów i uzasadnienie konfiguracji znajduje się w pliku [docs/07-kubernetes-deployment.md](docs/07-kubernetes-deployment.md).
+
 ## SQLx offline metadata
 
 Backend wykorzystuje zapytania `SQLx` sprawdzane na etapie kompilacji.
@@ -114,6 +164,10 @@ Szczegółowe opisy poszczególnych punktów zadania znajdują się w poniższyc
 - [Punkt 4 - Analiza podatności](docs/04-vulnerability-scan.md)
 - [Punkt 5 - Testowa wersja docker-compose](docs/05-docker-compose.md)
 - [Punkt 6 - Diagram compose-viz](docs/06-compose-viz.md)
+
+## Dokumentacja do zadania cząstkowego nr 2
+
+- [Wdrożenie Sprouts w Kubernetes](docs/07-kubernetes-deployment.md)
 
 ## Repozytorium źródłowe
 
