@@ -5,6 +5,7 @@ use color_eyre::eyre::{WrapErr, eyre};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Connection, PgConnection};
 use std::env;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -55,10 +56,11 @@ impl BackendCommand {
 async fn serve() -> Result<()> {
 	let database_url = env::var("DATABASE_URL").wrap_err("DATABASE_URL should be set")?;
 	let bind_address = env::var("BIND_ADDRESS").wrap_err("BIND_ADDRESS should be set")?;
+	let database_max_connections = database_max_connections_from_env()?;
 	let app_environment = AppEnvironment::from_env();
 	let config = Arc::new(AppConfig::from(app_environment));
 	let db_pool = PgPoolOptions::new()
-		.max_connections(10)
+		.max_connections(database_max_connections.get())
 		.connect(&database_url)
 		.await
 		.wrap_err("failed to connect to database")?;
@@ -73,6 +75,19 @@ async fn serve() -> Result<()> {
 	axum::serve(listener, app).await?;
 
 	Ok(())
+}
+
+fn database_max_connections_from_env() -> Result<NonZeroU32> {
+	const DEFAULT_DATABASE_MAX_CONNECTIONS: NonZeroU32 =
+		NonZeroU32::new(10).expect("default database connection limit should be non-zero");
+
+	match env::var("DATABASE_MAX_CONNECTIONS") {
+		Ok(value) => value
+			.parse()
+			.wrap_err("DATABASE_MAX_CONNECTIONS should be a positive integer"),
+		Err(env::VarError::NotPresent) => Ok(DEFAULT_DATABASE_MAX_CONNECTIONS),
+		Err(error) => Err(error).wrap_err("failed to read DATABASE_MAX_CONNECTIONS"),
+	}
 }
 
 async fn migrate() -> Result<()> {

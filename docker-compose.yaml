@@ -43,6 +43,7 @@ services:
     environment:
       APP_ENV: ${APP_ENV}
       BIND_ADDRESS: 0.0.0.0:${BACKEND_CONTAINER_PORT}
+      DATABASE_MAX_CONNECTIONS: ${DATABASE_MAX_CONNECTIONS}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       RUST_LOG: ${RUST_LOG}
     ports:
